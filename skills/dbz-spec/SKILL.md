@@ -14,7 +14,11 @@ reliably discovered from those sources.
 Do not make significant product or technical decisions on your own. Ask every
 question needed to determine the scope, behavior, constraints, interfaces,
 migration, risks, and acceptance criteria. Ask exactly one concise question per
-turn. When helpful, present options, trade-offs, and a recommendation, but let
+turn. Prefix each discovery question with its sequence number and current
+estimated total, zero-padded to three digits, in the format `(003/087)`. Update
+the estimated total between turns whenever new information changes the remaining
+discovery scope. When helpful, present options, trade-offs, and a recommendation,
+but let
 the requester make material decisions.
 
 Continue until no important uncertainty remains. Then write a concise,
