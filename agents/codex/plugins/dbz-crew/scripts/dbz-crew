@@ -1,0 +1,734 @@
+#!/usr/bin/env python3
+"""Operate the local DBZ Crew workflow without third-party dependencies."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+TASK_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
+WORKER_PHASES = {"implementation", "rebase"}
+
+
+class CrewError(RuntimeError):
+    """Expected workflow failure that should be shown without a traceback."""
+
+
+def command(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False)
+
+
+def command_text(args: list[str], cwd: Path | None = None) -> str:
+    result = command(args, cwd)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "command failed"
+        raise CrewError(f"{' '.join(args)}: {detail}")
+    return result.stdout.strip()
+
+
+def json_from_text(value: str) -> Any:
+    start = value.find("{")
+    if start < 0:
+        raise CrewError("expected JSON output")
+    try:
+        return json.loads(value[start:])
+    except json.JSONDecodeError as exc:
+        raise CrewError(f"invalid JSON output: {exc}") from exc
+
+
+def find_values(value: Any, key: str) -> list[Any]:
+    if isinstance(value, dict):
+        found = [value[key]] if key in value else []
+        for child in value.values():
+            found.extend(find_values(child, key))
+        return found
+    if isinstance(value, list):
+        found: list[Any] = []
+        for child in value:
+            found.extend(find_values(child, key))
+        return found
+    return []
+
+
+def first_string(value: Any, key: str) -> str | None:
+    for candidate in find_values(value, key):
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return None
+
+
+def state_root() -> Path:
+    configured = os.environ.get("DBZ_CREW_STATE_DIR")
+    if configured:
+        return Path(configured).expanduser()
+    xdg_state = os.environ.get("XDG_STATE_HOME")
+    parent = Path(xdg_state).expanduser() if xdg_state else Path.home() / ".local" / "state"
+    return parent / "dbz-crew"
+
+
+def state_path(main_pane: str) -> Path:
+    digest = hashlib.sha256(main_pane.encode()).hexdigest()[:20]
+    return state_root() / "sessions" / f"{digest}.json"
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def current_pane() -> dict[str, Any]:
+    payload = json_from_text(command_text(["herdr", "pane", "current"]))
+    for pane in find_values(payload, "pane"):
+        if isinstance(pane, dict) and isinstance(pane.get("pane_id"), str):
+            return pane
+    raise CrewError("Herdr did not return the current pane")
+
+
+def current_state() -> tuple[dict[str, Any], Path, dict[str, Any]]:
+    pane = current_pane()
+    pane_id = pane.get("pane_id")
+    if not isinstance(pane_id, str):
+        raise CrewError("current Herdr pane has no pane_id")
+    path = state_path(pane_id)
+    state = read_json(path)
+    if state is None:
+        raise CrewError("no dbz-crew workers are recorded for this Herdr pane")
+    state.pop("status", None)
+    state.pop("preflight", None)
+    state.pop("session_id", None)
+    state["main_pane"] = pane_id
+    state.setdefault("session_key", pane_id)
+    state.setdefault("queue", [])
+    state.setdefault("workers", {})
+    return state, path, pane
+
+
+def preflight(cwd: Path) -> dict[str, Any]:
+    errors: list[str] = []
+    for binary in ("git", "herdr", "codex"):
+        if shutil.which(binary) is None:
+            errors.append(f"missing command: {binary}")
+
+    repository: Path | None = None
+    branch = ""
+    head = ""
+    main_pane = ""
+    main_workspace = ""
+    if "missing command: git" not in errors:
+        result = command(["git", "rev-parse", "--show-toplevel"], cwd)
+        if result.returncode != 0:
+            errors.append("current directory is not inside a Git repository")
+        else:
+            repository = Path(result.stdout.strip()).resolve()
+            branch = command(["git", "branch", "--show-current"], repository).stdout.strip()
+            if branch != "main":
+                errors.append("current branch must be main")
+            main_ref = command(["git", "rev-parse", "--verify", "main"], repository)
+            current_head = command(["git", "rev-parse", "HEAD"], repository)
+            if main_ref.returncode != 0:
+                errors.append("local main branch does not exist")
+            elif current_head.returncode != 0:
+                errors.append("unable to resolve HEAD")
+            else:
+                head = current_head.stdout.strip()
+                if main_ref.stdout.strip() != head:
+                    errors.append("HEAD must equal the local main commit")
+            status = command(["git", "status", "--porcelain"], repository)
+            if status.returncode != 0:
+                errors.append("unable to inspect Git status")
+            elif status.stdout.strip():
+                errors.append("main worktree must be clean, including untracked files")
+            for marker in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD"):
+                if command(["git", "rev-parse", "-q", "--verify", marker], repository).returncode == 0:
+                    errors.append(f"Git operation in progress: {marker}")
+
+    if "missing command: herdr" not in errors:
+        if command(["herdr", "status", "server"]).returncode != 0:
+            errors.append("Herdr server is not running")
+        else:
+            try:
+                pane = current_pane()
+                if pane.get("agent") != "codex":
+                    errors.append("current Herdr pane is not a Codex agent")
+                pane_id = pane.get("pane_id")
+                if isinstance(pane_id, str):
+                    main_pane = pane_id
+                else:
+                    errors.append("current Herdr pane has no pane_id")
+                workspace_id = pane.get("workspace_id")
+                if isinstance(workspace_id, str):
+                    main_workspace = workspace_id
+                else:
+                    errors.append("current Herdr pane has no workspace_id")
+                pane_cwd = pane.get("cwd")
+                if repository and isinstance(pane_cwd, str):
+                    try:
+                        Path(pane_cwd).resolve().relative_to(repository)
+                    except ValueError:
+                        errors.append("current Herdr pane is outside this repository")
+            except CrewError as exc:
+                errors.append(str(exc))
+
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "repo_root": str(repository) if repository else None,
+        "branch": branch or None,
+        "main_head": head or None,
+        "main_pane": main_pane or None,
+        "main_workspace": main_workspace or None,
+    }
+
+
+def require_preflight() -> dict[str, Any]:
+    result = preflight(Path.cwd())
+    if not result["ok"]:
+        raise CrewError("preflight failed: " + "; ".join(result["errors"]))
+    return result
+
+
+def state_for_dispatch(main_pane: str) -> tuple[dict[str, Any], Path]:
+    path = state_path(main_pane)
+    state = read_json(path)
+    if state is None:
+        state = {
+            "main_pane": main_pane,
+            "session_key": main_pane,
+            "queue": [],
+            "workers": {},
+        }
+    else:
+        # State created by hook-based versions remains usable for completed
+        # workers, but no longer carries an activation lifecycle.
+        state.pop("status", None)
+        state.pop("preflight", None)
+        state.pop("session_id", None)
+        state["main_pane"] = main_pane
+        state.setdefault("session_key", main_pane)
+        state.setdefault("queue", [])
+        state.setdefault("workers", {})
+    return state, path
+
+
+def safe_task_id(value: str) -> str:
+    if not TASK_ID_RE.fullmatch(value):
+        raise CrewError("task id must match [a-z][a-z0-9-]{0,23}")
+    return value
+
+
+def safe_phase(value: str) -> str:
+    if value not in WORKER_PHASES:
+        raise CrewError("worker phase must be implementation or rebase")
+    return value
+
+
+def worker_name(task_id: str, state: dict[str, Any]) -> str:
+    session = str(state.get("session_key", "session"))
+    suffix = hashlib.sha256(session.encode()).hexdigest()[:6]
+    return f"crew-{task_id[:17]}-{suffix}"[:32]
+
+
+def active_worker_task_ids(state: dict[str, Any]) -> list[str]:
+    workers = state.get("workers")
+    if not isinstance(workers, dict):
+        return []
+    return [
+        task_id
+        for task_id, worker in workers.items()
+        if isinstance(task_id, str)
+        and isinstance(worker, dict)
+        and worker.get("status") in {"running", "working", "rebasing"}
+    ]
+
+
+def worker_record(state: dict[str, Any], task_id: str) -> dict[str, Any]:
+    workers = state.get("workers")
+    if not isinstance(workers, dict):
+        raise CrewError("no tracked dbz-crew workers are available")
+    worker = workers.get(task_id)
+    if not isinstance(worker, dict):
+        raise CrewError(f"unknown worker task id: {task_id}")
+    return worker
+
+
+def task_path(main_pane: str, task_id: str, phase: str = "implementation") -> Path:
+    digest = hashlib.sha256(main_pane.encode()).hexdigest()[:20]
+    suffix = "" if phase == "implementation" else f".{phase}"
+    return state_root() / "tasks" / digest / f"{task_id}{suffix}.txt"
+
+
+def result_path(main_pane: str, task_id: str, phase: str = "implementation") -> Path:
+    digest = hashlib.sha256(main_pane.encode()).hexdigest()[:20]
+    suffix = "" if phase == "implementation" else f".{phase}"
+    return state_root() / "results" / digest / f"{task_id}{suffix}.md"
+
+
+def worktree_path(repo_root: Path, branch: str) -> Path:
+    repository_id = hashlib.sha256(str(repo_root).encode()).hexdigest()[:20]
+    branch_slug = branch.replace("/", "-")
+    return state_root() / "worktrees" / repository_id / branch_slug
+
+
+def cleanup_failed_dispatch(repo_root: Path, branch: str, worktree: Path, tab_id: str | None) -> str | None:
+    failures: list[str] = []
+    if tab_id:
+        closed = command(["herdr", "tab", "close", tab_id])
+        if closed.returncode != 0:
+            failures.append(closed.stderr.strip() or closed.stdout.strip() or f"unable to close tab {tab_id}")
+    if worktree.exists():
+        removed = command(["git", "worktree", "remove", "--force", str(worktree)], repo_root)
+        if removed.returncode != 0:
+            failures.append(removed.stderr.strip() or removed.stdout.strip() or f"unable to remove {worktree}")
+    if command(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], repo_root).returncode == 0:
+        deleted = command(["git", "branch", "-D", branch], repo_root)
+        if deleted.returncode != 0:
+            failures.append(deleted.stderr.strip() or deleted.stdout.strip() or f"unable to delete {branch}")
+    return "; ".join(failures) or None
+
+
+def launch_monitor(
+    monitor_pane: str,
+    main_pane: str,
+    worker: str,
+    task_id: str,
+    prompt_file: Path,
+    phase: str = "implementation",
+) -> None:
+    monitor = command(
+        [
+            "herdr", "pane", "run", monitor_pane, str(Path(__file__).resolve()), "monitor",
+            "--main-pane", main_pane, "--worker", worker, "--task-id", task_id,
+            "--prompt-file", str(prompt_file), "--phase", phase,
+        ]
+    )
+    if monitor.returncode != 0:
+        raise CrewError(monitor.stderr.strip() or monitor.stdout.strip() or "unable to start worker monitor")
+
+
+def dispatch(args: argparse.Namespace) -> None:
+    task_id = safe_task_id(args.task_id)
+    check = require_preflight()
+    main_pane = check["main_pane"]
+    main_workspace = check["main_workspace"]
+    assert isinstance(main_pane, str)
+    assert isinstance(main_workspace, str)
+    state, state_file = state_for_dispatch(main_pane)
+    active_tasks = active_worker_task_ids(state)
+    if active_tasks and not args.parallel:
+        raise CrewError(
+            "an implementation worker is already active: "
+            + ", ".join(active_tasks)
+            + "; start another only for a separately planned user-requested implementation with --parallel"
+        )
+    repo_root = Path(str(check["repo_root"]))
+    base = args.base or "main"
+    command_text(["git", "rev-parse", "--verify", base], repo_root)
+    suffix = hashlib.sha256(str(state["session_key"]).encode()).hexdigest()[:8]
+    branch = f"dbz-crew/{suffix}/{task_id}"
+    if command(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], repo_root).returncode == 0:
+        raise CrewError(f"worker branch already exists: {branch}")
+    worker_path = worktree_path(repo_root, branch)
+    if worker_path.exists():
+        raise CrewError(f"worker worktree path already exists: {worker_path}")
+
+    tab_id: str | None = None
+    prompt_file = task_path(main_pane, task_id)
+    worker_recorded = False
+    try:
+        worker_path.parent.mkdir(parents=True, exist_ok=True)
+        command_text(["git", "worktree", "add", "-b", branch, str(worker_path), base], repo_root)
+
+        tab = command(
+            [
+                "herdr", "tab", "create", "--workspace", main_workspace, "--cwd", str(worker_path),
+                "--label", f"crew:{task_id}", "--no-focus",
+            ]
+        )
+        if tab.returncode != 0:
+            raise CrewError(tab.stderr.strip() or tab.stdout.strip() or "unable to create worker tab")
+        tab_payload = json_from_text(tab.stdout)
+        root_pane = first_string(tab_payload, "pane_id")
+        tab_id = first_string(tab_payload, "tab_id")
+        if root_pane is None or tab_id is None:
+            raise CrewError("Herdr did not return a worker tab and root pane")
+
+        name = worker_name(task_id, state)
+        started = command(["herdr", "agent", "start", name, "--kind", "codex", "--pane", root_pane, "--timeout", "30000"])
+        if started.returncode != 0:
+            raise CrewError(started.stderr.strip() or started.stdout.strip() or "unable to start worker Codex")
+        split = command(["herdr", "pane", "split", root_pane, "--direction", "down", "--cwd", str(worker_path), "--no-focus"])
+        if split.returncode != 0:
+            raise CrewError(split.stderr.strip() or split.stdout.strip() or "unable to create worker monitor pane")
+        monitor_pane = first_string(json_from_text(split.stdout), "pane_id")
+        if monitor_pane is None or monitor_pane == root_pane:
+            raise CrewError("Herdr did not return a worker monitor pane")
+
+        worker_prompt = (
+            "You are a DBZ-CREW worker. Work only in this assigned worktree. Do not create child agents, "
+            "change main, merge, push, rebase main, or remove worktrees. Keep unrelated files untouched. "
+            "Do not run `dbz-crew preflight`: it validates the principal's main worktree and will correctly "
+            "fail in a worker branch. "
+            "If you change repository files, commit the finished work with a Conventional Commit. Finish your "
+            "final response with `DBZ-CREW RESULT:` followed by summary, validation, and blockers.\n\n"
+            + args.prompt
+        )
+        prompt_file.parent.mkdir(parents=True, exist_ok=True)
+        prompt_file.write_text(worker_prompt, encoding="utf-8")
+
+        workers = state.setdefault("workers", {})
+        if not isinstance(workers, dict):
+            workers = {}
+            state["workers"] = workers
+        workers[task_id] = {
+            "agent": name,
+            "branch": branch,
+            "workspace": main_workspace,
+            "tab": tab_id,
+            "worktree": str(worker_path),
+            "worker_pane": root_pane,
+            "monitor_pane": monitor_pane,
+            "status": "running",
+        }
+        write_json(state_file, state)
+        worker_recorded = True
+
+        launch_monitor(monitor_pane, main_pane, name, task_id, prompt_file)
+    except CrewError as exc:
+        workers = state.get("workers")
+        if worker_recorded and isinstance(workers, dict):
+            workers.pop(task_id, None)
+            write_json(state_file, state)
+        prompt_file.unlink(missing_ok=True)
+        cleanup_error = cleanup_failed_dispatch(repo_root, branch, worker_path, tab_id)
+        if cleanup_error:
+            raise CrewError(f"{exc}; dispatch cleanup failed: {cleanup_error}") from exc
+        raise
+
+    print(json.dumps({
+        "task_id": task_id, "worker": name, "branch": branch, "workspace": main_workspace,
+        "tab": tab_id, "worktree": str(worker_path), "monitor_pane": monitor_pane,
+    }, indent=2))
+
+
+def event_status(payload: str) -> str:
+    try:
+        parsed = json_from_text(payload)
+    except CrewError:
+        return "failed"
+    for candidate in find_values(parsed, "agent_status"):
+        if candidate in {"done", "blocked", "idle", "working"}:
+            return str(candidate)
+    return "failed"
+
+
+def append_event(main_pane: str, task_id: str, phase: str, status: str, output_file: Path) -> None:
+    path = state_path(main_pane)
+    state = read_json(path)
+    if state is None:
+        return
+    queue = state.setdefault("queue", [])
+    if not isinstance(queue, list):
+        queue = []
+        state["queue"] = queue
+    queue.append({"task_id": task_id, "phase": phase, "status": status, "result": str(output_file)})
+    workers = state.get("workers")
+    if isinstance(workers, dict) and isinstance(workers.get(task_id), dict):
+        workers[task_id]["status"] = status
+        workers[task_id][f"{phase}_result"] = str(output_file)
+        if phase == "implementation":
+            workers[task_id]["result"] = str(output_file)
+    write_json(path, state)
+
+
+def monitor(args: argparse.Namespace) -> None:
+    phase = safe_phase(args.phase)
+    prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+    waited = command([
+        "herdr", "agent", "prompt", args.worker, prompt, "--wait", "--until", "done", "--until", "blocked",
+    ])
+    status = event_status(waited.stdout) if waited.returncode == 0 else "failed"
+    read = command(["herdr", "agent", "read", args.worker, "--source", "recent-unwrapped", "--lines", "160"])
+    output = read.stdout if read.returncode == 0 else (read.stderr or "Worker output was unavailable.")
+    output_file = result_path(args.main_pane, args.task_id, phase)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text(output, encoding="utf-8")
+    append_event(args.main_pane, args.task_id, phase, status, output_file)
+
+    sound = "request" if status in {"blocked", "failed"} else "done"
+    body = f"{args.task_id} ({phase}): {status}. Result: {output_file}"
+    command(["herdr", "notification", "show", f"DBZ Crew: {args.task_id}", "--body", body, "--sound", sound])
+    event = (
+        f"DBZ-CREW EVENT: worker {args.task_id} {phase} is {status}. Read {output_file}, inspect "
+        "the worker state with `dbz-crew status`, report it to the user, and await an explicit user "
+        "decision before rebase, merge, or cleanup."
+    )
+    # Prompt delivery is asynchronous in Herdr. Waiting for the principal to become
+    # idle would keep this monitor pane occupied indefinitely, preventing a later
+    # rebase from reusing the original worker's monitor session.
+    command(["herdr", "agent", "prompt", args.main_pane, event])
+
+
+def rebase(args: argparse.Namespace) -> None:
+    task_id = safe_task_id(args.task_id)
+    state, state_file, _ = current_state()
+    check = require_preflight()
+    worker = worker_record(state, task_id)
+    if worker.get("status") in {"running", "working", "rebasing"}:
+        raise CrewError(f"worker {task_id} is still active; wait for its result before requesting a rebase")
+    branch = worker.get("branch")
+    worktree_value = worker.get("worktree")
+    agent = worker.get("agent")
+    monitor_pane = worker.get("monitor_pane")
+    main_pane = check["main_pane"]
+    if not all(isinstance(value, str) for value in (branch, worktree_value, agent, monitor_pane, main_pane)):
+        raise CrewError(f"worker {task_id} has incomplete rebase metadata")
+    assert isinstance(branch, str)
+    assert isinstance(worktree_value, str)
+    assert isinstance(agent, str)
+    assert isinstance(monitor_pane, str)
+    assert isinstance(main_pane, str)
+    worktree = Path(worktree_value)
+    if not worktree.is_dir():
+        raise CrewError(f"worker {task_id} worktree is unavailable: {worktree}")
+    if command(["git", "status", "--porcelain"], worktree).stdout.strip():
+        raise CrewError(f"refusing to rebase a dirty worker worktree: {worktree}")
+    current_branch = command_text(["git", "branch", "--show-current"], worktree)
+    if current_branch != branch:
+        raise CrewError(f"worker {task_id} is on {current_branch or 'detached HEAD'}, not {branch}")
+
+    prompt_file = task_path(main_pane, task_id, "rebase")
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(
+        "You are resuming your completed DBZ-CREW implementation worker after an explicit user request. "
+        f"Rebase your branch `{branch}` onto the current local `main`. Resolve conflicts, run relevant "
+        "validation, and report the resulting commit. Do not run `dbz-crew preflight`: it validates the "
+        "principal's main worktree and will correctly fail in a worker branch. Do not merge, push, delete "
+        "worktrees, or rebase the main branch itself. Finish with `DBZ-CREW RESULT:` followed by summary, "
+        "validation, and blockers.",
+        encoding="utf-8",
+    )
+    previous_status = worker.get("status")
+    worker["status"] = "rebasing"
+    write_json(state_file, state)
+    try:
+        launch_monitor(monitor_pane, main_pane, agent, task_id, prompt_file, "rebase")
+    except CrewError:
+        worker["status"] = previous_status
+        write_json(state_file, state)
+        prompt_file.unlink(missing_ok=True)
+        raise
+    print(json.dumps({
+        "task_id": task_id, "branch": branch, "worker": agent, "phase": "rebase",
+        "worktree": str(worktree), "monitor_pane": monitor_pane,
+    }, indent=2))
+
+
+def integrate(args: argparse.Namespace) -> None:
+    state, _, _ = current_state()
+    check = require_preflight()
+    repo_root = Path(str(check["repo_root"]))
+    branch = args.branch
+    command_text(["git", "rev-parse", "--verify", branch], repo_root)
+    main_head = command_text(["git", "rev-parse", "main"], repo_root)
+    merge_base = command_text(["git", "merge-base", "main", branch], repo_root)
+    if merge_base != main_head:
+        workers = state.get("workers")
+        worker_items = workers.items() if isinstance(workers, dict) else []
+        task_id = next(
+            (
+                candidate
+                for candidate, worker in worker_items
+                if isinstance(candidate, str) and isinstance(worker, dict) and worker.get("branch") == branch
+            ),
+            None,
+        )
+        command_hint = f"dbz-crew rebase --task-id {task_id}" if task_id else "an explicit dbz-crew rebase request"
+        raise CrewError(f"{branch} is not rebased onto the current main; request {command_hint} before merging")
+    merged = command(["git", "merge", "--no-ff", "-m", f"chore(crew): merge {branch}", branch], repo_root)
+    if merged.returncode != 0:
+        raise CrewError("local merge failed; resolve or abort the merge before continuing")
+    print(f"Merged {branch} into main")
+
+
+def cleanup(args: argparse.Namespace) -> None:
+    state, state_file, _ = current_state()
+    check = require_preflight()
+    repo_root = Path(str(check["repo_root"]))
+    branch = args.branch
+    workers = state.get("workers")
+    if not isinstance(workers, dict):
+        raise CrewError("no tracked dbz-crew workers are available for cleanup")
+    worker = worker_record(state, args.task_id)
+    if worker.get("branch") != branch:
+        raise CrewError(f"worker {args.task_id} is tracked on {worker.get('branch')}, not {branch}")
+    if worker.get("status") in {"running", "working", "rebasing"}:
+        raise CrewError(f"worker {args.task_id} is still active; wait for its result before cleanup")
+    worktree_value = worker.get("worktree")
+    tab_id = worker.get("tab")
+    if not isinstance(worktree_value, str) or not isinstance(tab_id, str):
+        raise CrewError(f"worker {args.task_id} has incomplete cleanup metadata")
+    worktree = Path(worktree_value)
+    merged = command(["git", "merge-base", "--is-ancestor", branch, "main"], repo_root).returncode == 0
+    if not merged and not args.superseded_by:
+        raise CrewError(f"refusing to remove unmerged branch: {branch}")
+    if args.superseded_by:
+        replacement = args.superseded_by
+        if command(["git", "merge-base", "--is-ancestor", replacement, "main"], repo_root).returncode != 0:
+            raise CrewError(f"replacement branch is not merged into main: {replacement}")
+    if command(["git", "status", "--porcelain"], worktree).stdout.strip():
+        raise CrewError(f"refusing to remove dirty worktree: {worktree}")
+    closed = command(["herdr", "tab", "close", tab_id])
+    if closed.returncode != 0:
+        raise CrewError(closed.stderr.strip() or closed.stdout.strip() or f"unable to close worker tab {tab_id}")
+    removed = command(["git", "worktree", "remove", str(worktree)], repo_root)
+    if removed.returncode != 0:
+        raise CrewError(removed.stderr.strip() or removed.stdout.strip() or "worker tab was closed but Git worktree removal failed")
+    delete_flag = "-d" if merged else "-D"
+    deleted = command(["git", "branch", delete_flag, branch], repo_root)
+    if deleted.returncode != 0:
+        raise CrewError(deleted.stderr.strip() or deleted.stdout.strip() or "worktree removed but branch was retained")
+    workers.pop(args.task_id, None)
+    write_json(state_file, state)
+    print(f"Removed worker {args.task_id} and branch {branch}")
+
+
+def status(_: argparse.Namespace) -> None:
+    pane = current_pane()
+    pane_id = pane.get("pane_id")
+    if not isinstance(pane_id, str):
+        raise CrewError("current Herdr pane has no pane_id")
+    state = read_json(state_path(pane_id))
+    if state is None:
+        state = {"main_pane": pane_id, "queue": [], "workers": {}}
+    else:
+        state.pop("status", None)
+        state.pop("preflight", None)
+        state.pop("session_id", None)
+        state["main_pane"] = pane_id
+        state.setdefault("session_key", pane_id)
+        state.setdefault("queue", [])
+        state.setdefault("workers", {})
+    print(json.dumps(state, indent=2, sort_keys=True))
+
+
+def install(_: argparse.Namespace) -> None:
+    marketplace_name = "dbz-ai-tools"
+    plugin_id = f"dbz-crew@{marketplace_name}"
+    plugin_root = Path(__file__).resolve().parents[1]
+    marketplace_root = Path(__file__).resolve().parents[5]
+    marketplace_file = marketplace_root / ".agents" / "plugins" / "marketplace.json"
+    if not marketplace_file.is_file():
+        raise CrewError(f"marketplace.json not found at {marketplace_file}")
+
+    listing = json_from_text(command_text(["codex", "plugin", "marketplace", "list", "--json"]))
+    existing_root: Path | None = None
+    for items in find_values(listing, "marketplaces"):
+        if not isinstance(items, list):
+            continue
+        for marketplace in items:
+            if isinstance(marketplace, dict) and marketplace.get("name") == marketplace_name:
+                root = marketplace.get("root")
+                if isinstance(root, str):
+                    existing_root = Path(root).expanduser().resolve()
+
+    expected = marketplace_root.resolve()
+    if existing_root is None:
+        command_text(["codex", "plugin", "marketplace", "add", str(expected)])
+    elif existing_root != expected:
+        raise CrewError(
+            f"marketplace {marketplace_name} already points to {existing_root}; expected {expected}"
+        )
+
+    plugins = json_from_text(command_text(["codex", "plugin", "list", "--json"]))
+    installed_path: Path | None = None
+    for items in find_values(plugins, "installed"):
+        if not isinstance(items, list):
+            continue
+        for plugin in items:
+            if isinstance(plugin, dict) and plugin.get("pluginId") == plugin_id:
+                path = first_string(plugin.get("source"), "path")
+                if path:
+                    installed_path = Path(path).expanduser().resolve()
+
+    expected_plugin = plugin_root.resolve()
+    if installed_path is None:
+        command_text(["codex", "plugin", "add", plugin_id])
+        print(f"Installed {plugin_id} from {expected}")
+    elif installed_path != expected_plugin:
+        raise CrewError(f"plugin {plugin_id} points to {installed_path}; expected {expected_plugin}")
+    else:
+        print(f"{plugin_id} already installed from {expected}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Manage a DBZ Crew workflow")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("preflight")
+    dispatch_parser = subparsers.add_parser("dispatch")
+    dispatch_parser.add_argument("--task-id", required=True)
+    dispatch_parser.add_argument("--prompt", required=True)
+    dispatch_parser.add_argument("--base")
+    dispatch_parser.add_argument("--parallel", action="store_true")
+    monitor_parser = subparsers.add_parser("monitor")
+    monitor_parser.add_argument("--main-pane", required=True)
+    monitor_parser.add_argument("--worker", required=True)
+    monitor_parser.add_argument("--task-id", required=True)
+    monitor_parser.add_argument("--prompt-file", required=True)
+    monitor_parser.add_argument("--phase", default="implementation")
+    integrate_parser = subparsers.add_parser("integrate")
+    integrate_parser.add_argument("--branch", required=True)
+    rebase_parser = subparsers.add_parser("rebase")
+    rebase_parser.add_argument("--task-id", required=True)
+    cleanup_parser = subparsers.add_parser("cleanup")
+    cleanup_parser.add_argument("--task-id", required=True)
+    cleanup_parser.add_argument("--branch", required=True)
+    cleanup_parser.add_argument("--superseded-by")
+    subparsers.add_parser("status")
+    subparsers.add_parser("install")
+    args = parser.parse_args()
+
+    try:
+        if args.command == "preflight":
+            print(json.dumps(preflight(Path.cwd()), indent=2))
+        elif args.command == "dispatch":
+            dispatch(args)
+        elif args.command == "monitor":
+            monitor(args)
+        elif args.command == "integrate":
+            integrate(args)
+        elif args.command == "rebase":
+            rebase(args)
+        elif args.command == "cleanup":
+            cleanup(args)
+        elif args.command == "status":
+            status(args)
+        elif args.command == "install":
+            install(args)
+    except CrewError as exc:
+        print(f"dbz-crew: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

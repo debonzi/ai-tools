@@ -1,0 +1,4 @@
+interface:
+  display_name: "DBZ Spec"
+  short_description: "Draft implementation-ready specs"
+  default_prompt: "Use $dbz-spec to turn this idea into an implementation-ready spec."

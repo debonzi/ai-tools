@@ -1,0 +1,20 @@
+{
+  "name": "dbz-crew",
+  "version": "0.1.0",
+  "description": "Explicit Herdr-based parallel Codex workers for local Git repositories.",
+  "author": {
+    "name": "DBZ AI Tools"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "DBZ Crew",
+    "shortDescription": "Delegate explicit parallel Codex tasks safely.",
+    "longDescription": "Creates explicit Herdr workers in Git worktrees without lifecycle hooks or principal-session blocking.",
+    "developerName": "DBZ AI Tools",
+    "category": "Productivity",
+    "capabilities": [
+      "Automation"
+    ],
+    "defaultPrompt": "Delegate this named task to a DBZ Crew worker in parallel."
+  }
+}
