@@ -8,6 +8,7 @@ a primary focus on Pi.
 - `configs/`: global instructions shared by supported agents.
 - `skills/`: portable skills following the Agent Skills format.
 - `tools/`: shared command-line workflows such as DBZ Crew.
+- `issues/`: local file-based issues intended for AI-agent workflows.
 - `agents/pi/`: Pi-specific extensions and resource directories.
 - `agents/codex/`: Codex-specific plugins and integrations.
 - `.agents/plugins/marketplace.json`: the local Codex marketplace manifest.
@@ -47,7 +48,7 @@ installer.
 Requires `codex`, `python3`, `git`, and `herdr`. The installer links:
 
 - `configs/AGENTS.md` to `${CODEX_HOME:-$HOME/.codex}/AGENTS.md`;
-- each shared skill into the Codex skills directory;
+- the portable `dbz-spec` and `dbz-issues` skills directly into the Codex skills directory;
 - the shared `dbz-crew` CLI into `~/.local/bin`.
 
 It also registers the `dbz-ai-tools` marketplace and installs the
@@ -59,6 +60,14 @@ read-only workers may inspect dirty or non-main source worktrees through an
 isolated snapshot, with an opt-in live-worktree mode. See
 [`tools/dbz-crew/README.md`](tools/dbz-crew/README.md) for the command matrix and
 safety behavior.
+
+## Local issue management
+
+The portable `dbz-issues` skill manages Markdown issue registries under
+`issues/open/` and `issues/closed/`. Its dependency-aware Python CLI can
+initialize a selected registry, create and edit open issues, report actionable
+issues, and close completed work. Initialization and every mutation require an
+explicit user request; closed issues are terminal and immutable.
 
 ## Security
 

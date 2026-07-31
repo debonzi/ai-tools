@@ -187,6 +187,7 @@ install_codex() {
     local legacy_crew="$repo_root/agents/codex/plugins/dbz-crew/scripts/dbz-crew"
     local shared_agents="$repo_root/configs/AGENTS.md"
     local spec_skill="$repo_root/skills/dbz-spec"
+    local issues_skill="$repo_root/skills/dbz-issues"
 
     validation_failed=0
     for command_name in codex python3 git herdr; do
@@ -197,6 +198,7 @@ install_codex() {
     validate_parent_directory "$bin_dir"
     validate_link "$shared_agents" "$codex_home/AGENTS.md"
     validate_link "$spec_skill" "$codex_home/skills/dbz-spec"
+    validate_link "$issues_skill" "$codex_home/skills/dbz-issues"
     validate_link "$crew" "$bin_dir/dbz-crew" "$legacy_crew"
 
     if [ "$validation_failed" -ne 0 ]; then
@@ -208,6 +210,7 @@ install_codex() {
     "$crew" install
     install_link "$shared_agents" "$codex_home/AGENTS.md"
     install_link "$spec_skill" "$codex_home/skills/dbz-spec"
+    install_link "$issues_skill" "$codex_home/skills/dbz-issues"
     install_link "$crew" "$bin_dir/dbz-crew" "$legacy_crew"
 }
 

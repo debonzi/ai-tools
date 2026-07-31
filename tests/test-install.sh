@@ -23,6 +23,8 @@ make_fixture() {
         "$root/configs" \
         "$root/skills/dbz-spec" \
         "$root/skills/dbz-crew" \
+        "$root/skills/dbz-issues/scripts" \
+        "$root/.agents/plugins" \
         "$root/agents/pi/extensions/codex-usage" \
         "$root/agents/pi/extensions/dbz-crew-events" \
         "$root/agents/pi/prompts" \
@@ -35,10 +37,13 @@ make_fixture() {
     cp "$project_root/agents/pi/APPEND_SYSTEM.md" "$root/agents/pi/APPEND_SYSTEM.md"
     printf '%s\n' '---' 'name: dbz-spec' 'description: test' '---' >"$root/skills/dbz-spec/SKILL.md"
     printf '%s\n' '---' 'name: dbz-crew' 'description: test' '---' >"$root/skills/dbz-crew/SKILL.md"
+    printf '%s\n' '---' 'name: dbz-issues' 'description: test' '---' >"$root/skills/dbz-issues/SKILL.md"
+    printf '%s\n' '#!/usr/bin/env python3' >"$root/skills/dbz-issues/scripts/issues.py"
+    printf '%s\n' '{"name":"dbz-ai-tools"}' >"$root/.agents/plugins/marketplace.json"
     printf 'export default function () {}\n' >"$root/agents/pi/extensions/codex-usage/index.ts"
     printf 'export default function () {}\n' >"$root/agents/pi/extensions/dbz-crew-events/index.ts"
     touch "$root/agents/pi/prompts/.gitkeep" "$root/agents/pi/themes/.gitkeep"
-    chmod +x "$root/install.sh" "$root/tools/dbz-crew/dbz-crew"
+    chmod +x "$root/install.sh" "$root/tools/dbz-crew/dbz-crew" "$root/skills/dbz-issues/scripts/issues.py"
 }
 
 make_fake_commands() {
@@ -51,6 +56,27 @@ exit 0
 SCRIPT
         chmod +x "$bin/$name"
     done
+    cat >"$bin/codex" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+    "plugin marketplace list --json")
+        printf '{"marketplaces":[]}\n'
+        ;;
+    "plugin marketplace add "*)
+        ;;
+    "plugin list --json")
+        printf '{"installed":[]}\n'
+        ;;
+    "plugin add "*)
+        ;;
+    *)
+        printf 'unexpected fake codex invocation: %s\n' "$*" >&2
+        exit 1
+        ;;
+esac
+SCRIPT
+    chmod +x "$bin/codex"
     cat >"$bin/herdr" <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -93,6 +119,14 @@ run_installer() {
         "$fixture/install.sh" pi
 }
 
+run_codex_installer() {
+    local fixture="$1"
+    local home="$2"
+    local fake_bin="$3"
+    HOME="$home" CODEX_HOME="$home/.codex" PATH="$fake_bin:/usr/bin:/bin" \
+        "$fixture/install.sh" codex
+}
+
 fake_bin="$temporary/bin"
 make_fake_commands "$fake_bin"
 
@@ -114,9 +148,19 @@ agent="$fresh_home/.pi/agent"
 assert_link "$agent/extensions/codex-usage" "$fresh_fixture/agents/pi/extensions/codex-usage"
 assert_link "$agent/extensions/dbz-crew-events" "$fresh_fixture/agents/pi/extensions/dbz-crew-events"
 assert_link "$agent/skills/dbz-crew" "$fresh_fixture/skills/dbz-crew"
+assert_link "$agent/skills/dbz-issues" "$fresh_fixture/skills/dbz-issues"
 assert_link "$fresh_home/.local/bin/dbz-crew" "$fresh_fixture/tools/dbz-crew/dbz-crew"
 [ -f "$agent/extensions/herdr-agent-state.ts" ] || fail "Herdr integration was not installed"
 [ ! -e "$agent/settings.json" ] || fail "fresh install unexpectedly created settings.json"
+
+printf '%s\n' 'test: Codex installs both portable direct skills'
+codex_fixture="$temporary/codex-repo"
+codex_home="$temporary/codex-home"
+make_fixture "$codex_fixture"
+run_codex_installer "$codex_fixture" "$codex_home" "$fake_bin" >/dev/null
+assert_link "$codex_home/.codex/skills/dbz-spec" "$codex_fixture/skills/dbz-spec"
+assert_link "$codex_home/.codex/skills/dbz-issues" "$codex_fixture/skills/dbz-issues"
+assert_link "$codex_home/.local/bin/dbz-crew" "$codex_fixture/tools/dbz-crew/dbz-crew"
 
 printf '%s\n' 'test: real Pi settings remain untouched'
 settings_fixture="$temporary/settings-repo"
