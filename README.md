@@ -5,7 +5,7 @@ a primary focus on Pi.
 
 ## Contents
 
-- `configs/`: global instructions shared by supported agents.
+- `configs/`: shared agent instructions and Linux work-environment configuration.
 - `skills/`: portable skills following the Agent Skills format.
 - `tools/`: shared command-line workflows such as DBZ Crew.
 - `issues/`: local file-based issues intended for AI-agent workflows.
@@ -15,16 +15,39 @@ a primary focus on Pi.
 
 ## Install
 
-Choose exactly one agent per invocation:
+Choose exactly one installation target per invocation:
 
 ```bash
+./install.sh configs
 ./install.sh pi
 ./install.sh codex
 ```
 
 The installer validates all prerequisites and destinations before creating
-symlinks. It does not install agent CLIs or other dependencies, and it refuses
-to overwrite unexpected files or symlinks.
+symlinks. It does not install applications or other dependencies, and it
+refuses to overwrite unexpected files or symlinks.
+
+### Linux work environment
+
+`./install.sh configs` requires Linux, Zsh, WezTerm, Starship, and Herdr. It
+validates and links the repository-owned files individually:
+
+```text
+configs/wezterm/wezterm.lua     -> ${XDG_CONFIG_HOME:-$HOME/.config}/wezterm/wezterm.lua
+configs/starship/starship.toml  -> ${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml
+configs/herdr/config.toml       -> ${XDG_CONFIG_HOME:-$HOME/.config}/herdr/config.toml
+```
+
+The command automatically replaces only recognized legacy links from a sibling
+`dbz-toolbox` checkout. Existing regular files, unrelated links, linked
+configuration directories, and broken unexpected links cause validation to
+fail before any changes. Repeated installation is idempotent.
+
+Only the individual configuration files are linked, so application logs and
+runtime state remain outside the repository. Applications that rewrite a
+linked configuration file will modify this checkout. See the
+[official Herdr configuration documentation](https://herdr.dev/docs/configuration/)
+for Herdr-specific behavior.
 
 ### Pi
 

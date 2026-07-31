@@ -20,7 +20,9 @@ assert_link() {
 make_fixture() {
     local root="$1"
     mkdir -p \
-        "$root/configs" \
+        "$root/configs/herdr" \
+        "$root/configs/starship" \
+        "$root/configs/wezterm" \
         "$root/skills/dbz-spec" \
         "$root/skills/dbz-crew" \
         "$root/skills/dbz-issues/scripts" \
@@ -33,6 +35,9 @@ make_fixture() {
         "$root/agents/codex/plugins/dbz-crew/scripts"
     cp "$project_root/install.sh" "$root/install.sh"
     cp "$project_root/configs/AGENTS.md" "$root/configs/AGENTS.md"
+    cp "$project_root/configs/herdr/config.toml" "$root/configs/herdr/config.toml"
+    cp "$project_root/configs/starship/starship.toml" "$root/configs/starship/starship.toml"
+    cp "$project_root/configs/wezterm/wezterm.lua" "$root/configs/wezterm/wezterm.lua"
     cp "$project_root/tools/dbz-crew/dbz-crew" "$root/tools/dbz-crew/dbz-crew"
     cp "$project_root/agents/pi/APPEND_SYSTEM.md" "$root/agents/pi/APPEND_SYSTEM.md"
     printf '%s\n' '---' 'name: dbz-spec' 'description: test' '---' >"$root/skills/dbz-spec/SKILL.md"
@@ -49,13 +54,39 @@ make_fixture() {
 make_fake_commands() {
     local bin="$1"
     mkdir -p "$bin"
-    for name in pi python3 git; do
+    for name in pi python3 git zsh; do
         cat >"$bin/$name" <<'SCRIPT'
 #!/usr/bin/env bash
 exit 0
 SCRIPT
         chmod +x "$bin/$name"
     done
+    cat >"$bin/uname" <<'SCRIPT'
+#!/usr/bin/env bash
+printf '%s\n' "${FAKE_UNAME:-Linux}"
+SCRIPT
+    chmod +x "$bin/uname"
+    cat >"$bin/starship" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${FAKE_STARSHIP_CONFIG_FAIL:-0}" = "1" ]; then
+    exit 1
+fi
+if [ "${1:-}" != "print-config" ] || [ ! -f "${STARSHIP_CONFIG:-}" ]; then
+    printf 'unexpected fake starship invocation: %s\n' "$*" >&2
+    exit 1
+fi
+SCRIPT
+    chmod +x "$bin/starship"
+    cat >"$bin/wezterm" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" != "--config-file" ] || [ ! -f "${2:-}" ] || [ "${3:-}" != "show-keys" ]; then
+    printf 'unexpected fake wezterm invocation: %s\n' "$*" >&2
+    exit 1
+fi
+SCRIPT
+    chmod +x "$bin/wezterm"
     cat >"$bin/codex" <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -81,6 +112,9 @@ SCRIPT
 #!/usr/bin/env bash
 set -euo pipefail
 case "${1:-} ${2:-} ${3:-}" in
+    "config check ")
+        [ -f "${HERDR_CONFIG_PATH:-}" ] || exit 1
+        ;;
     "agent start --help")
         printf 'possible values: pi, codex\n'
         ;;
@@ -127,6 +161,14 @@ run_codex_installer() {
         "$fixture/install.sh" codex
 }
 
+run_config_installer() {
+    local fixture="$1"
+    local home="$2"
+    local fake_bin="$3"
+    HOME="$home" XDG_CONFIG_HOME="$home/.config" PATH="$fake_bin:/usr/bin:/bin" \
+        "$fixture/install.sh" configs
+}
+
 fake_bin="$temporary/bin"
 make_fake_commands "$fake_bin"
 
@@ -134,6 +176,114 @@ printf '%s\n' 'test: Codex packaging mirror matches the shared skill'
 cmp "$project_root/skills/dbz-crew/SKILL.md" \
     "$project_root/agents/codex/plugins/dbz-crew/skills/dbz-crew/SKILL.md" || \
     fail "Codex DBZ Crew skill mirror is out of sync"
+
+printf '%s\n' 'test: fresh config install creates links and is idempotent'
+config_fixture="$temporary/config-fresh/dbz-ai-tools"
+config_home="$temporary/config-fresh/home"
+make_fixture "$config_fixture"
+first_config_output="$(run_config_installer "$config_fixture" "$config_home" "$fake_bin")"
+assert_link "$config_home/.config/wezterm/wezterm.lua" "$config_fixture/configs/wezterm/wezterm.lua"
+assert_link "$config_home/.config/starship.toml" "$config_fixture/configs/starship/starship.toml"
+assert_link "$config_home/.config/herdr/config.toml" "$config_fixture/configs/herdr/config.toml"
+printf '%s\n' "$first_config_output" | grep -Fq "$config_home/.config/starship.toml ->" || \
+    fail "fresh config install did not report the Starship link"
+second_config_output="$(run_config_installer "$config_fixture" "$config_home" "$fake_bin")"
+printf '%s\n' "$second_config_output" | grep -Fq 'already installed' || \
+    fail "repeated config install did not report idempotent links"
+
+printf '%s\n' 'test: recognized legacy config links migrate automatically'
+legacy_config_case="$temporary/config-legacy"
+legacy_config_fixture="$legacy_config_case/dbz-ai-tools"
+legacy_config_root="$legacy_config_case/dbz-toolbox"
+legacy_config_home="$legacy_config_case/home"
+make_fixture "$legacy_config_fixture"
+mkdir -p \
+    "$legacy_config_root/devtools/dotfiles/.config/wezterm" \
+    "$legacy_config_root/devtools/dotfiles/.config/herdr" \
+    "$legacy_config_home/.config/wezterm" \
+    "$legacy_config_home/.config/herdr"
+touch \
+    "$legacy_config_root/devtools/dotfiles/.config/wezterm/wezterm.lua" \
+    "$legacy_config_root/devtools/dotfiles/.config/starship.toml" \
+    "$legacy_config_root/devtools/dotfiles/.config/herdr/config.toml"
+ln -s "$legacy_config_root/devtools/dotfiles/.config/wezterm/wezterm.lua" \
+    "$legacy_config_home/.config/wezterm/wezterm.lua"
+ln -s "$legacy_config_root/devtools/dotfiles/.config/starship.toml" \
+    "$legacy_config_home/.config/starship.toml"
+ln -s "$legacy_config_root/devtools/dotfiles/.config/herdr/config.toml" \
+    "$legacy_config_home/.config/herdr/config.toml"
+run_config_installer "$legacy_config_fixture" "$legacy_config_home" "$fake_bin" >/dev/null
+assert_link "$legacy_config_home/.config/wezterm/wezterm.lua" \
+    "$legacy_config_fixture/configs/wezterm/wezterm.lua"
+assert_link "$legacy_config_home/.config/starship.toml" \
+    "$legacy_config_fixture/configs/starship/starship.toml"
+assert_link "$legacy_config_home/.config/herdr/config.toml" \
+    "$legacy_config_fixture/configs/herdr/config.toml"
+
+printf '%s\n' 'test: unexpected config collision fails before changes'
+collision_config_case="$temporary/config-collision"
+collision_config_fixture="$collision_config_case/dbz-ai-tools"
+collision_config_root="$collision_config_case/dbz-toolbox"
+collision_config_home="$collision_config_case/home"
+make_fixture "$collision_config_fixture"
+mkdir -p \
+    "$collision_config_root/devtools/dotfiles/.config/wezterm" \
+    "$collision_config_home/.config/wezterm"
+touch "$collision_config_root/devtools/dotfiles/.config/wezterm/wezterm.lua"
+legacy_wezterm_link="$collision_config_root/devtools/dotfiles/.config/wezterm/wezterm.lua"
+ln -s "$legacy_wezterm_link" "$collision_config_home/.config/wezterm/wezterm.lua"
+printf '%s\n' 'user-owned' >"$collision_config_home/.config/starship.toml"
+if run_config_installer "$collision_config_fixture" "$collision_config_home" "$fake_bin" >/dev/null 2>&1; then
+    fail "config installer accepted an unexpected collision"
+fi
+assert_link "$collision_config_home/.config/wezterm/wezterm.lua" "$legacy_wezterm_link"
+[ ! -e "$collision_config_home/.config/herdr" ] || \
+    fail "config installer changed another destination after failed validation"
+
+printf '%s\n' 'test: missing config source fails before changes'
+missing_config_fixture="$temporary/config-missing/dbz-ai-tools"
+missing_config_home="$temporary/config-missing/home"
+make_fixture "$missing_config_fixture"
+rm "$missing_config_fixture/configs/herdr/config.toml"
+if run_config_installer "$missing_config_fixture" "$missing_config_home" "$fake_bin" >/dev/null 2>&1; then
+    fail "config installer accepted a missing source"
+fi
+[ ! -e "$missing_config_home/.config" ] || \
+    fail "config installer created destinations after missing-source validation"
+
+printf '%s\n' 'test: invalid config content fails before changes'
+invalid_config_fixture="$temporary/config-invalid/dbz-ai-tools"
+invalid_config_home="$temporary/config-invalid/home"
+make_fixture "$invalid_config_fixture"
+if FAKE_STARSHIP_CONFIG_FAIL=1 run_config_installer \
+    "$invalid_config_fixture" "$invalid_config_home" "$fake_bin" >/dev/null 2>&1; then
+    fail "config installer accepted invalid Starship configuration"
+fi
+[ ! -e "$invalid_config_home/.config" ] || \
+    fail "config installer created destinations after content validation failed"
+
+printf '%s\n' 'test: linked config directory fails before changes'
+linked_config_fixture="$temporary/config-linked-directory/dbz-ai-tools"
+linked_config_home="$temporary/config-linked-directory/home"
+linked_config_redirect="$temporary/config-linked-directory/redirect"
+make_fixture "$linked_config_fixture"
+mkdir -p "$linked_config_home" "$linked_config_redirect"
+ln -s "$linked_config_redirect" "$linked_config_home/.config"
+if run_config_installer "$linked_config_fixture" "$linked_config_home" "$fake_bin" >/dev/null 2>&1; then
+    fail "config installer accepted a linked configuration directory"
+fi
+[ ! -e "$linked_config_redirect/starship.toml" ] || \
+    fail "config installer wrote through a linked configuration directory"
+
+printf '%s\n' 'test: config install rejects non-Linux systems before changes'
+non_linux_fixture="$temporary/config-non-linux/dbz-ai-tools"
+non_linux_home="$temporary/config-non-linux/home"
+make_fixture "$non_linux_fixture"
+if FAKE_UNAME=Darwin run_config_installer "$non_linux_fixture" "$non_linux_home" "$fake_bin" >/dev/null 2>&1; then
+    fail "config installer accepted a non-Linux system"
+fi
+[ ! -e "$non_linux_home/.config" ] || \
+    fail "config installer created destinations on a non-Linux system"
 
 printf '%s\n' 'test: fresh install preserves unrelated resources'
 fresh_fixture="$temporary/fresh-repo"
