@@ -1,6 +1,6 @@
 # DBZ Crew Smoke Test
 
-Run these checks from a clean `main` worktree inside a Herdr-managed session after installing the matching agent integration.
+Run implementation checks from a clean `main` worktree inside a Herdr-managed session after installing the matching agent integration. Read-only checks intentionally cover dirty and non-main source worktrees.
 
 ## Pi principal and Pi worker
 
@@ -20,6 +20,18 @@ Run these checks from a clean `main` worktree inside a Herdr-managed session aft
 3. Confirm the worker process is Codex and uses an isolated worktree and Herdr tab.
 4. Keep the principal busy until the worker finishes and confirm completion waits for availability.
 5. Confirm status, explicit rebase, explicit integration, and explicit cleanup retain their previous behavior.
+
+## Read-only delegation
+
+1. On a non-main branch, modify a tracked file and add both a non-ignored untracked file and an ignored file.
+2. Run `dbz-crew preflight --read-only` and confirm it succeeds while reporting the branch and dirty state.
+3. Delegate a bounded inspection with `dbz-crew dispatch --read-only`.
+4. Confirm the worker uses an isolated worktree containing the tracked change and non-ignored untracked file but not the ignored file.
+5. Confirm an unchanged snapshot produces a completion event and automatically removes the worker tab, branch, and worktree while retaining the private result.
+6. Repeat with a worker instructed to create a file; confirm validation fails and retains its resources for inspection.
+7. Run with `--read-only --committed-only` and confirm local changes are absent. Repeat with `--base <ref>` and confirm the requested committed tree is used.
+8. Run an explicitly requested `--read-only --in-place` inspection, modify the source concurrently, and confirm the result warns without attributing or failing on that change.
+9. Confirm ordinary dispatch, rebase, integration, and cleanup still reject a dirty or non-main principal worktree.
 
 ## Installation isolation
 

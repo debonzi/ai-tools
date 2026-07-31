@@ -17,6 +17,7 @@ export interface CrewCompletionEvent {
 	status: "done" | "blocked" | "failed";
 	result: string;
 	created_at: number;
+	message?: string;
 }
 
 interface ActiveRuntime {
@@ -64,7 +65,9 @@ export function validateCompletionEvent(
 		typeof event.result !== "string" ||
 		!isAbsolute(event.result) ||
 		typeof event.created_at !== "number" ||
-		!Number.isFinite(event.created_at)
+		!Number.isFinite(event.created_at) ||
+		(event.message !== undefined &&
+			(typeof event.message !== "string" || !event.message.trim() || event.message.length > 2000))
 	) {
 		return undefined;
 	}
@@ -203,6 +206,7 @@ function deliveredEventIds(ctx: ExtensionContext): Set<string> {
 }
 
 function completionMessage(event: CrewCompletionEvent): string {
+	if (event.message) return event.message;
 	return [
 		`DBZ-CREW EVENT: worker ${event.task_id} ${event.phase} is ${event.status}.`,
 		`Read ${event.result}, inspect the worker state with \`dbz-crew status\`, report it to the user,`,

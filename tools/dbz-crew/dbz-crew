@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -23,6 +24,7 @@ TASK_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 WORKER_PHASES = {"implementation", "rebase"}
 SUPPORTED_AGENTS = {"codex", "pi"}
 PI_THINKING_LEVELS = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+READ_ONLY_MODES = {"isolated", "in-place"}
 
 
 class CrewError(RuntimeError):
@@ -39,6 +41,18 @@ def command_text(args: list[str], cwd: Path | None = None) -> str:
         detail = result.stderr.strip() or result.stdout.strip() or "command failed"
         raise CrewError(f"{' '.join(args)}: {detail}")
     return result.stdout.strip()
+
+
+def command_bytes(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=False, check=False)
+
+
+def bytes_command_output(args: list[str], cwd: Path | None = None) -> bytes:
+    result = command_bytes(args, cwd)
+    if result.returncode != 0:
+        detail = os.fsdecode(result.stderr).strip() or os.fsdecode(result.stdout).strip() or "command failed"
+        raise CrewError(f"{' '.join(args)}: {detail}")
+    return result.stdout
 
 
 def json_from_text(value: str) -> Any:
@@ -226,7 +240,10 @@ def pi_integration_installed() -> bool:
     result = command(["herdr", "integration", "status"])
     if result.returncode != 0:
         return False
-    return any(line.strip().startswith("pi: installed") for line in result.stdout.splitlines())
+    return any(
+        re.match(r"^pi: (?:installed|current)(?:\s|$)", line.strip())
+        for line in result.stdout.splitlines()
+    )
 
 
 def herdr_supports_pi_workers() -> bool:
@@ -237,8 +254,24 @@ def herdr_supports_pi_workers() -> bool:
 def preflight(
     cwd: Path,
     pi_overrides: dict[str, str | None] | None = None,
+    *,
+    read_only: bool = False,
+    in_place: bool = False,
+    committed_only: bool = False,
+    base: str | None = None,
+    allow_mutable_base: bool = False,
 ) -> dict[str, Any]:
     errors: list[str] = []
+    try:
+        validate_read_only_options(
+            read_only,
+            in_place,
+            committed_only,
+            base,
+            allow_mutable_base=allow_mutable_base,
+        )
+    except CrewError as exc:
+        errors.append(str(exc))
     for binary in ("git", "herdr"):
         if shutil.which(binary) is None:
             errors.append(f"missing command: {binary}")
@@ -251,6 +284,8 @@ def preflight(
     principal_agent = ""
     principal_session_id = ""
     worker_config: dict[str, str] | None = None
+    dirty = False
+    base_head = ""
     if "missing command: git" not in errors:
         result = command(["git", "rev-parse", "--show-toplevel"], cwd)
         if result.returncode != 0:
@@ -258,23 +293,37 @@ def preflight(
         else:
             repository = Path(result.stdout.strip()).resolve()
             branch = command(["git", "branch", "--show-current"], repository).stdout.strip()
-            if branch != "main":
-                errors.append("current branch must be main")
-            main_ref = command(["git", "rev-parse", "--verify", "main"], repository)
             current_head = command(["git", "rev-parse", "HEAD"], repository)
-            if main_ref.returncode != 0:
-                errors.append("local main branch does not exist")
-            elif current_head.returncode != 0:
+            if current_head.returncode != 0:
                 errors.append("unable to resolve HEAD")
             else:
                 head = current_head.stdout.strip()
-                if main_ref.stdout.strip() != head:
+                base_head = head
+
+            if not read_only:
+                if branch != "main":
+                    errors.append("current branch must be main")
+                main_ref = command(["git", "rev-parse", "--verify", "main"], repository)
+                if main_ref.returncode != 0:
+                    errors.append("local main branch does not exist")
+                elif head and main_ref.stdout.strip() != head:
                     errors.append("HEAD must equal the local main commit")
+            elif committed_only and head:
+                selected_base = base or "HEAD"
+                commit_revision = f"{selected_base}^{{commit}}"
+                resolved = command(["git", "rev-parse", "--verify", commit_revision], repository)
+                if resolved.returncode != 0:
+                    errors.append(f"unable to resolve read-only base: {selected_base}")
+                else:
+                    base_head = resolved.stdout.strip()
+
             status = command(["git", "status", "--porcelain"], repository)
             if status.returncode != 0:
                 errors.append("unable to inspect Git status")
-            elif status.stdout.strip():
-                errors.append("main worktree must be clean, including untracked files")
+            else:
+                dirty = bool(status.stdout.strip())
+                if dirty and not read_only:
+                    errors.append("main worktree must be clean, including untracked files")
             for marker in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD"):
                 if command(["git", "rev-parse", "-q", "--verify", marker], repository).returncode == 0:
                     errors.append(f"Git operation in progress: {marker}")
@@ -334,6 +383,12 @@ def preflight(
         "repo_root": str(repository) if repository else None,
         "branch": branch or None,
         "main_head": head or None,
+        "source_head": head or None,
+        "base_head": base_head or None,
+        "dirty": dirty,
+        "read_only": read_only,
+        "read_only_mode": "in-place" if in_place else ("isolated" if read_only else None),
+        "committed_only": committed_only,
         "main_pane": main_pane or None,
         "main_workspace": main_workspace or None,
         "principal_agent": principal_agent or None,
@@ -344,8 +399,22 @@ def preflight(
 
 def require_preflight(
     pi_overrides: dict[str, str | None] | None = None,
+    *,
+    read_only: bool = False,
+    in_place: bool = False,
+    committed_only: bool = False,
+    base: str | None = None,
+    allow_mutable_base: bool = False,
 ) -> dict[str, Any]:
-    result = preflight(Path.cwd(), pi_overrides)
+    result = preflight(
+        Path.cwd(),
+        pi_overrides,
+        read_only=read_only,
+        in_place=in_place,
+        committed_only=committed_only,
+        base=base,
+        allow_mutable_base=allow_mutable_base,
+    )
     if not result["ok"]:
         raise CrewError("preflight failed: " + "; ".join(result["errors"]))
     return result
@@ -392,7 +461,7 @@ def record_dispatched_worker(
         active_tasks = active_worker_task_ids(state)
         if active_tasks and not allow_parallel:
             raise CrewError(
-                "an implementation worker became active during dispatch: "
+                "a worker became active during dispatch: "
                 + ", ".join(active_tasks)
                 + "; retry with --parallel only for a separately requested task"
             )
@@ -441,6 +510,205 @@ def safe_phase(value: str) -> str:
     return value
 
 
+def validate_read_only_options(
+    read_only: bool,
+    in_place: bool,
+    committed_only: bool,
+    base: str | None,
+    *,
+    allow_mutable_base: bool,
+) -> None:
+    if in_place and not read_only:
+        raise CrewError("--in-place requires --read-only")
+    if committed_only and not read_only:
+        raise CrewError("--committed-only requires --read-only")
+    if in_place and committed_only:
+        raise CrewError("--in-place and --committed-only cannot be combined")
+    if read_only and base and not committed_only:
+        raise CrewError("--base requires --committed-only in read-only mode")
+    if read_only and base and (base.startswith("-") or "\x00" in base):
+        raise CrewError("invalid read-only base")
+    if base and not read_only and not allow_mutable_base:
+        raise CrewError("--base is only available with --read-only --committed-only for preflight")
+
+
+def safe_relative_path(value: str) -> Path:
+    relative = Path(value)
+    if not relative.parts or relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise CrewError(f"unsafe repository-relative path: {value!r}")
+    return relative
+
+
+def file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    except OSError as exc:
+        raise CrewError(f"unable to read snapshot file {path}: {exc}") from exc
+    return digest.hexdigest()
+
+
+def filesystem_entry(root: Path, relative: Path) -> dict[str, Any]:
+    path = root / relative
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise CrewError(f"unable to inspect snapshot path {path}: {exc}") from exc
+    entry: dict[str, Any] = {
+        "path": relative.as_posix(),
+        "mode": stat.S_IMODE(metadata.st_mode),
+    }
+    if stat.S_ISLNK(metadata.st_mode):
+        entry.update({"type": "symlink", "target": os.readlink(path)})
+    elif stat.S_ISREG(metadata.st_mode):
+        entry.update({"type": "file", "size": metadata.st_size, "sha256": file_digest(path)})
+    elif stat.S_ISDIR(metadata.st_mode):
+        entry["type"] = "directory"
+    else:
+        entry["type"] = "special"
+    return entry
+
+
+def git_diff_bytes(repository: Path, *, cached: bool = False) -> bytes:
+    args = ["git", "diff"]
+    if cached:
+        args.append("--cached")
+    args.extend(["--binary", "--full-index", "--no-ext-diff", "--no-textconv", "HEAD", "--"])
+    return bytes_command_output(args, repository)
+
+
+def untracked_paths(repository: Path) -> list[Path]:
+    output = bytes_command_output(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        repository,
+    )
+    paths = [safe_relative_path(os.fsdecode(value)) for value in output.split(b"\0") if value]
+    return sorted(paths, key=lambda path: os.fsencode(path.as_posix()))
+
+
+def local_export_state(repository: Path) -> tuple[bytes, list[Path], dict[str, Any]]:
+    patch = git_diff_bytes(repository)
+    paths = untracked_paths(repository)
+    state = {
+        "head": command_text(["git", "rev-parse", "HEAD"], repository),
+        "patch_sha256": hashlib.sha256(patch).hexdigest(),
+        "untracked": [filesystem_entry(repository, path) for path in paths],
+    }
+    return patch, paths, state
+
+
+def ensure_copy_parent(root: Path, relative: Path) -> Path:
+    current = root
+    for part in relative.parts[:-1]:
+        current /= part
+        if os.path.lexists(current):
+            metadata = current.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                raise CrewError(f"unsafe untracked destination parent: {current}")
+        else:
+            current.mkdir()
+    destination = root / relative
+    if os.path.lexists(destination):
+        raise CrewError(f"untracked snapshot destination already exists: {destination}")
+    return destination
+
+
+def copy_untracked_path(source_root: Path, destination_root: Path, relative: Path) -> None:
+    source = source_root / relative
+    try:
+        source.parent.resolve(strict=True).relative_to(source_root.resolve())
+    except (OSError, ValueError) as exc:
+        raise CrewError(f"unsafe untracked snapshot source: {source}") from exc
+    destination = ensure_copy_parent(destination_root, relative)
+    try:
+        metadata = source.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            os.symlink(os.readlink(source), destination)
+        elif stat.S_ISREG(metadata.st_mode):
+            shutil.copy2(source, destination, follow_symlinks=False)
+        else:
+            raise CrewError(f"unsupported untracked snapshot entry: {source}")
+    except OSError as exc:
+        raise CrewError(f"unable to copy untracked snapshot entry {source}: {exc}") from exc
+
+
+def materialize_local_snapshot(
+    source_root: Path,
+    destination_root: Path,
+    patch: bytes,
+    paths: list[Path],
+) -> None:
+    if patch:
+        applied = subprocess.run(
+            ["git", "apply", "--binary", "-"],
+            cwd=destination_root,
+            input=patch,
+            capture_output=True,
+            text=False,
+            check=False,
+        )
+        if applied.returncode != 0:
+            detail = os.fsdecode(applied.stderr).strip() or os.fsdecode(applied.stdout).strip()
+            raise CrewError(f"unable to apply the local read-only snapshot: {detail or 'git apply failed'}")
+    for relative in paths:
+        copy_untracked_path(source_root, destination_root, relative)
+
+
+def filesystem_manifest(repository: Path) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+
+    def visit(directory: Path, relative_directory: Path) -> None:
+        try:
+            children = sorted(os.scandir(directory), key=lambda entry: os.fsencode(entry.name))
+        except OSError as exc:
+            raise CrewError(f"unable to inspect snapshot directory {directory}: {exc}") from exc
+        for child in children:
+            relative = relative_directory / child.name
+            if not relative_directory.parts and child.name == ".git":
+                continue
+            entry = filesystem_entry(repository, relative)
+            entries.append(entry)
+            if entry["type"] == "directory":
+                visit(Path(child.path), relative)
+
+    visit(repository, Path())
+    return entries
+
+
+def worktree_manifest(repository: Path) -> dict[str, Any]:
+    return {
+        "head": command_text(["git", "rev-parse", "HEAD"], repository),
+        "branch": command_text(["git", "branch", "--show-current"], repository),
+        "index_sha256": hashlib.sha256(git_diff_bytes(repository, cached=True)).hexdigest(),
+        "entries": filesystem_manifest(repository),
+    }
+
+
+def manifest_differences(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    differences: list[str] = []
+    for key, label in (("head", "[HEAD]"), ("branch", "[branch]"), ("index_sha256", "[index]")):
+        if before.get(key) != after.get(key):
+            differences.append(label)
+    before_entries = {
+        entry["path"]: entry
+        for entry in before.get("entries", [])
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    }
+    after_entries = {
+        entry["path"]: entry
+        for entry in after.get("entries", [])
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    }
+    differences.extend(
+        path
+        for path in sorted(set(before_entries) | set(after_entries))
+        if before_entries.get(path) != after_entries.get(path)
+    )
+    return differences
+
+
 def worker_name(task_id: str, state: dict[str, Any]) -> str:
     session = str(state.get("session_key", "session"))
     suffix = hashlib.sha256(session.encode()).hexdigest()[:6]
@@ -480,6 +748,11 @@ def result_path(main_pane: str, task_id: str, phase: str = "implementation") -> 
     digest = hashlib.sha256(main_pane.encode()).hexdigest()[:20]
     suffix = "" if phase == "implementation" else f".{phase}"
     return state_root() / "results" / digest / f"{task_id}{suffix}.md"
+
+
+def snapshot_path(main_pane: str, task_id: str) -> Path:
+    digest = hashlib.sha256(main_pane.encode()).hexdigest()[:20]
+    return state_root() / "snapshots" / digest / f"{task_id}.json"
 
 
 def worktree_path(repo_root: Path, branch: str) -> Path:
@@ -559,12 +832,26 @@ def launch_monitor(
 
 def dispatch(args: argparse.Namespace) -> None:
     task_id = safe_task_id(args.task_id)
+    validate_read_only_options(
+        args.read_only,
+        args.in_place,
+        args.committed_only,
+        args.base,
+        allow_mutable_base=True,
+    )
     overrides = {
         "provider": args.worker_provider,
         "model": args.worker_model,
         "thinking": args.worker_thinking,
     }
-    check = require_preflight(overrides)
+    check = require_preflight(
+        overrides,
+        read_only=args.read_only,
+        in_place=args.in_place,
+        committed_only=args.committed_only,
+        base=args.base,
+        allow_mutable_base=True,
+    )
     main_pane = check["main_pane"]
     main_workspace = check["main_workspace"]
     principal_agent = check["principal_agent"]
@@ -579,29 +866,63 @@ def dispatch(args: argparse.Namespace) -> None:
     active_tasks = active_worker_task_ids(state)
     if active_tasks and not args.parallel:
         raise CrewError(
-            "an implementation worker is already active: "
+            "a worker is already active: "
             + ", ".join(active_tasks)
-            + "; start another only for a separately planned user-requested implementation with --parallel"
+            + "; start another only for a separately requested task with --parallel"
         )
+
     repo_root = Path(str(check["repo_root"]))
-    base = args.base or "main"
-    command_text(["git", "rev-parse", "--verify", base], repo_root)
+    read_only_mode = "in-place" if args.in_place else ("isolated" if args.read_only else None)
     suffix = hashlib.sha256(str(state["session_key"]).encode()).hexdigest()[:8]
-    branch = f"dbz-crew/{suffix}/{task_id}"
-    if command(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], repo_root).returncode == 0:
-        raise CrewError(f"worker branch already exists: {branch}")
-    worker_path = worktree_path(repo_root, branch)
-    if worker_path.exists():
-        raise CrewError(f"worker worktree path already exists: {worker_path}")
+    branch: str | None = None
+    if not args.in_place:
+        branch = f"dbz-crew/{suffix}/{task_id}"
+        if command(
+            ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+            repo_root,
+        ).returncode == 0:
+            raise CrewError(f"worker branch already exists: {branch}")
+        worker_path = worktree_path(repo_root, branch)
+        if worker_path.exists():
+            raise CrewError(f"worker worktree path already exists: {worker_path}")
+    else:
+        worker_path = repo_root
+
+    if args.read_only:
+        base = check.get("base_head")
+        if not isinstance(base, str):
+            raise CrewError("read-only preflight did not resolve a base commit")
+    else:
+        base = args.base or "main"
+        command_text(["git", "rev-parse", "--verify", base], repo_root)
 
     tab_id: str | None = None
     prompt_file = task_path(main_pane, task_id)
+    baseline_file = snapshot_path(main_pane, task_id) if args.read_only else None
     worker_recorded = False
     worktree_created = False
     try:
-        ensure_private_directory(worker_path.parent)
-        command_text(["git", "worktree", "add", "-b", branch, str(worker_path), base], repo_root)
-        worktree_created = True
+        local_patch = b""
+        local_paths: list[Path] = []
+        export_before: dict[str, Any] | None = None
+        if args.read_only and not args.in_place and not args.committed_only:
+            local_patch, local_paths, export_before = local_export_state(repo_root)
+            if export_before.get("head") != check.get("source_head"):
+                raise CrewError("the source HEAD changed after read-only preflight")
+
+        if not args.in_place:
+            assert branch is not None
+            ensure_private_directory(worker_path.parent)
+            command_text(["git", "worktree", "add", "-b", branch, str(worker_path), base], repo_root)
+            worktree_created = True
+            if export_before is not None:
+                materialize_local_snapshot(repo_root, worker_path, local_patch, local_paths)
+                _, _, export_after = local_export_state(repo_root)
+                if export_after != export_before:
+                    raise CrewError("the source worktree changed while the read-only snapshot was captured")
+
+        if baseline_file is not None:
+            write_json(baseline_file, worktree_manifest(worker_path))
 
         tab = command(
             [
@@ -625,25 +946,44 @@ def dispatch(args: argparse.Namespace) -> None:
                 or started.stdout.strip()
                 or f"unable to start worker {principal_agent}"
             )
-        split = command(["herdr", "pane", "split", root_pane, "--direction", "down", "--cwd", str(worker_path), "--no-focus"])
+        split = command([
+            "herdr", "pane", "split", root_pane, "--direction", "down",
+            "--cwd", str(worker_path), "--no-focus",
+        ])
         if split.returncode != 0:
             raise CrewError(split.stderr.strip() or split.stdout.strip() or "unable to create worker monitor pane")
         monitor_pane = first_string(json_from_text(split.stdout), "pane_id")
         if monitor_pane is None or monitor_pane == root_pane:
             raise CrewError("Herdr did not return a worker monitor pane")
 
-        worker_prompt = (
-            "You are a DBZ-CREW worker. Work only in this assigned worktree. Do not create child agents, "
-            "change main, merge, push, rebase main, or remove worktrees. Keep unrelated files untouched. "
-            "Do not run `dbz-crew preflight`: it validates the principal's main worktree and will correctly "
-            "fail in a worker branch. "
-            "If you change repository files, commit the finished work with a Conventional Commit. Finish your "
-            "final response with `DBZ-CREW RESULT:` followed by summary, validation, and blockers.\n\n"
-            + args.prompt
-        )
+        if args.read_only:
+            location = (
+                "You are sharing the principal's live worktree. Other processes may change it concurrently. "
+                if args.in_place
+                else "Work only in this isolated read-only snapshot. "
+            )
+            worker_prompt = (
+                "You are a DBZ-CREW read-only exploratory worker. "
+                + location
+                + "Do not create, modify, remove, stage, or commit repository files. Avoid commands that "
+                "write generated files, caches, dependency state, or Git metadata. Do not create child agents, "
+                "merge, push, rebase, or remove worktrees. If a tool may have written to the repository, say so. "
+                "Finish your final response with `DBZ-CREW RESULT:` followed by summary, validation, and blockers.\n\n"
+                + args.prompt
+            )
+        else:
+            worker_prompt = (
+                "You are a DBZ-CREW worker. Work only in this assigned worktree. Do not create child agents, "
+                "change main, merge, push, rebase main, or remove worktrees. Keep unrelated files untouched. "
+                "Do not run `dbz-crew preflight`: it validates the principal's main worktree and will correctly "
+                "fail in a worker branch. "
+                "If you change repository files, commit the finished work with a Conventional Commit. Finish your "
+                "final response with `DBZ-CREW RESULT:` followed by summary, validation, and blockers.\n\n"
+                + args.prompt
+            )
         write_private_text(prompt_file, worker_prompt)
 
-        state = record_dispatched_worker(
+        record_dispatched_worker(
             main_pane,
             task_id,
             {
@@ -658,6 +998,13 @@ def dispatch(args: argparse.Namespace) -> None:
                 "principal_session_id": principal_session_id,
                 "worker_config": worker_config,
                 "status": "running",
+                "read_only": args.read_only,
+                "read_only_mode": read_only_mode,
+                "committed_only": args.committed_only,
+                "snapshot": str(baseline_file) if baseline_file else None,
+                "repo_root": str(repo_root),
+                "source_head": check.get("source_head"),
+                "base_head": base,
             },
             args.parallel,
         )
@@ -671,17 +1018,29 @@ def dispatch(args: argparse.Namespace) -> None:
         if worker_recorded:
             remove_recorded_worker(main_pane, task_id)
         prompt_file.unlink(missing_ok=True)
+        if baseline_file is not None:
+            baseline_file.unlink(missing_ok=True)
         cleanup_error = cleanup_failed_dispatch(
-            repo_root, branch, worker_path, tab_id, worktree_created,
+            repo_root, branch or "", worker_path, tab_id, worktree_created,
         )
         if cleanup_error:
             raise CrewError(f"{exc}; dispatch cleanup failed: {cleanup_error}") from exc
         raise
 
     print(json.dumps({
-        "task_id": task_id, "worker": name, "agent_kind": principal_agent, "branch": branch,
-        "workspace": main_workspace, "tab": tab_id, "worktree": str(worker_path),
-        "monitor_pane": monitor_pane, "worker_config": worker_config,
+        "task_id": task_id,
+        "worker": name,
+        "agent_kind": principal_agent,
+        "branch": branch,
+        "workspace": main_workspace,
+        "tab": tab_id,
+        "worktree": None if args.in_place else str(worker_path),
+        "cwd": str(worker_path),
+        "monitor_pane": monitor_pane,
+        "worker_config": worker_config,
+        "read_only": args.read_only,
+        "read_only_mode": read_only_mode,
+        "committed_only": args.committed_only,
     }, indent=2))
 
 
@@ -700,7 +1059,20 @@ def event_status(payload: str) -> str:
     return "failed"
 
 
-def completion_event_text(task_id: str, phase: str, status: str, output_file: Path) -> str:
+def completion_event_text(
+    task_id: str,
+    phase: str,
+    status: str,
+    output_file: Path,
+    *,
+    read_only: bool = False,
+) -> str:
+    if read_only:
+        return (
+            f"DBZ-CREW EVENT: read-only worker {task_id} {phase} is {status}. Read {output_file}, "
+            "inspect the worker state with `dbz-crew status`, and report it to the user. Validated "
+            "read-only resources are cleaned automatically; failed validation resources are retained."
+        )
     return (
         f"DBZ-CREW EVENT: worker {task_id} {phase} is {status}. Read {output_file}, inspect "
         "the worker state with `dbz-crew status`, report it to the user, and await an explicit user "
@@ -748,6 +1120,7 @@ def write_completion_event(
     phase: str,
     status: str,
     output_file: Path,
+    message: str | None = None,
 ) -> Path:
     event_path = event_directory(principal_session_id) / f"{event_id}.json"
     write_json(event_path, {
@@ -758,9 +1131,117 @@ def write_completion_event(
         "status": status,
         "result": str(output_file.resolve()),
         "created_at": int(time.time() * 1000),
-        "message": completion_event_text(task_id, phase, status, output_file),
+        "message": message or completion_event_text(task_id, phase, status, output_file),
     })
     return event_path
+
+
+def recorded_worker(main_pane: str, task_id: str) -> dict[str, Any]:
+    state = read_json(state_path(main_pane))
+    if state is None:
+        raise CrewError("DBZ Crew state is unavailable while validating a worker")
+    return worker_record(state, task_id)
+
+
+def read_only_baseline(worker: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    value = worker.get("snapshot")
+    if not isinstance(value, str):
+        raise CrewError("read-only worker has no recorded snapshot")
+    path = Path(value).resolve()
+    try:
+        path.relative_to(state_root())
+    except ValueError as exc:
+        raise CrewError(f"read-only snapshot is outside private state: {path}") from exc
+    baseline = read_json(path)
+    if baseline is None:
+        raise CrewError(f"read-only snapshot is unavailable: {path}")
+    return path, baseline
+
+
+def remove_isolated_read_only_resources(
+    worker: dict[str, Any],
+    baseline: dict[str, Any],
+) -> None:
+    repo_value = worker.get("repo_root")
+    branch = worker.get("branch")
+    worktree_value = worker.get("worktree")
+    if not all(isinstance(value, str) for value in (repo_value, branch, worktree_value)):
+        raise CrewError("read-only worker has incomplete cleanup metadata")
+    assert isinstance(repo_value, str)
+    assert isinstance(branch, str)
+    assert isinstance(worktree_value, str)
+    repo_root = Path(repo_value).resolve()
+    worktree = Path(os.path.abspath(worktree_value))
+    expected_worktree = Path(os.path.abspath(worktree_path(repo_root, branch)))
+    if worktree != expected_worktree:
+        raise CrewError(f"refusing unexpected read-only worktree path: {worktree}")
+    try:
+        worktree_metadata = worktree.lstat()
+    except OSError as exc:
+        raise CrewError(f"read-only worktree is unavailable: {worktree}") from exc
+    if stat.S_ISLNK(worktree_metadata.st_mode) or not stat.S_ISDIR(worktree_metadata.st_mode):
+        raise CrewError(f"refusing unsafe read-only worktree: {worktree}")
+    differences = manifest_differences(baseline, worktree_manifest(worktree))
+    if differences:
+        raise CrewError("read-only worktree changed before automatic cleanup: " + ", ".join(differences[:20]))
+    branch_head = command_text(["git", "rev-parse", branch], repo_root)
+    if branch_head != baseline.get("head"):
+        raise CrewError(f"read-only branch advanced unexpectedly: {branch}")
+    removed = command(["git", "worktree", "remove", "--force", str(worktree)], repo_root)
+    if removed.returncode != 0:
+        raise CrewError(removed.stderr.strip() or removed.stdout.strip() or f"unable to remove {worktree}")
+    deleted = command(["git", "branch", "-D", branch], repo_root)
+    if deleted.returncode != 0:
+        raise CrewError(deleted.stderr.strip() or deleted.stdout.strip() or f"unable to delete {branch}")
+
+
+def launch_read_only_finalizer(main_pane: str, task_id: str, tab_id: str) -> None:
+    try:
+        subprocess.Popen(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "finalize-read-only",
+                "--main-pane",
+                main_pane,
+                "--task-id",
+                task_id,
+                "--tab",
+                tab_id,
+            ],
+            cwd="/",
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        raise CrewError(f"unable to start read-only finalizer: {exc}") from exc
+
+
+def finalize_read_only(args: argparse.Namespace) -> None:
+    time.sleep(0.25)
+    try:
+        worker = recorded_worker(args.main_pane, args.task_id)
+    except CrewError:
+        return
+    if not worker.get("read_only") or worker.get("tab") != args.tab:
+        return
+    try:
+        snapshot_file, _ = read_only_baseline(worker)
+    except CrewError:
+        snapshot_file = None
+    closed = command(["herdr", "tab", "close", args.tab])
+    if closed.returncode != 0:
+        detail = closed.stderr.strip() or closed.stdout.strip() or f"unable to close tab {args.tab}"
+        command([
+            "herdr", "notification", "show", f"DBZ Crew: {args.task_id}",
+            "--body", f"Read-only auto-cleanup failed: {detail}", "--sound", "request",
+        ])
+        return
+    remove_recorded_worker(args.main_pane, args.task_id)
+    if snapshot_file is not None:
+        snapshot_file.unlink(missing_ok=True)
 
 
 def monitor(args: argparse.Namespace) -> None:
@@ -774,27 +1255,82 @@ def monitor(args: argparse.Namespace) -> None:
     read = command(["herdr", "agent", "read", args.worker, "--source", "recent-unwrapped", "--lines", "160"])
     output = read.stdout if read.returncode == 0 else (read.stderr or "Worker output was unavailable.")
     output_file = result_path(args.main_pane, args.task_id, phase)
-    write_private_text(output_file, output)
+
+    worker = recorded_worker(args.main_pane, args.task_id)
+    read_only = bool(worker.get("read_only")) and phase == "implementation"
+    read_only_mode = worker.get("read_only_mode") if read_only else None
+    finalizer_tab: str | None = None
+    validation_note = ""
+    cleanup_error: CrewError | None = None
+    if read_only:
+        try:
+            _, baseline = read_only_baseline(worker)
+            worktree_value = worker.get("worktree")
+            if not isinstance(worktree_value, str):
+                raise CrewError("read-only worker has no worktree path")
+            differences = manifest_differences(baseline, worktree_manifest(Path(worktree_value)))
+            if differences:
+                displayed = ", ".join(differences[:50])
+                suffix = "" if len(differences) <= 50 else f" (+{len(differences) - 50} more)"
+                if read_only_mode == "isolated":
+                    status = "failed"
+                    validation_note = f"\n\nDBZ-CREW READ-ONLY VIOLATION: {displayed}{suffix}\n"
+                else:
+                    validation_note = (
+                        "\n\nDBZ-CREW READ-ONLY WARNING: the shared worktree changed during the worker run; "
+                        f"the changes cannot be attributed to the worker: {displayed}{suffix}\n"
+                    )
+            elif read_only_mode == "isolated":
+                write_private_text(output_file, output + validation_note)
+                try:
+                    remove_isolated_read_only_resources(worker, baseline)
+                except CrewError as exc:
+                    cleanup_error = exc
+                    status = "failed"
+                    validation_note += f"\n\nDBZ-CREW AUTO-CLEANUP FAILED: {exc}\n"
+            tab = worker.get("tab")
+            can_finalize = read_only_mode == "in-place" or not differences
+            if cleanup_error is None and can_finalize and isinstance(tab, str):
+                finalizer_tab = tab
+        except CrewError as exc:
+            if read_only_mode == "isolated":
+                status = "failed"
+                validation_note += f"\n\nDBZ-CREW READ-ONLY VALIDATION FAILED: {exc}\n"
+            else:
+                validation_note += f"\n\nDBZ-CREW READ-ONLY WARNING: validation unavailable: {exc}\n"
+                tab = worker.get("tab")
+                if isinstance(tab, str):
+                    finalizer_tab = tab
+
+    write_private_text(output_file, output + validation_note)
     event_id = f"{args.task_id}-{phase}-{uuid.uuid4().hex}"
     append_event(args.main_pane, event_id, args.task_id, phase, status, output_file)
 
     sound = "request" if status in {"blocked", "failed"} else "done"
     body = f"{args.task_id} ({phase}): {status}. Result: {output_file}"
     command(["herdr", "notification", "show", f"DBZ Crew: {args.task_id}", "--body", body, "--sound", sound])
-    event = completion_event_text(args.task_id, phase, status, output_file)
+    event = completion_event_text(args.task_id, phase, status, output_file, read_only=read_only)
     if args.principal_agent == "pi":
         if not args.principal_session_id:
             raise CrewError("Pi completion event has no principal session id")
         write_completion_event(
-            event_id, args.principal_session_id, args.task_id, phase, status, output_file,
+            event_id, args.principal_session_id, args.task_id, phase, status, output_file, event,
         )
-        return
+    else:
+        available = command([
+            "herdr", "agent", "wait", args.main_pane, "--until", "idle", "--until", "done",
+        ])
+        if available.returncode == 0:
+            command(["herdr", "agent", "prompt", args.main_pane, event])
 
-    available = command([
-        "herdr", "agent", "wait", args.main_pane, "--until", "idle", "--until", "done",
-    ])
-    if available.returncode == 0:
-        command(["herdr", "agent", "prompt", args.main_pane, event])
+    if finalizer_tab is not None:
+        try:
+            launch_read_only_finalizer(args.main_pane, args.task_id, finalizer_tab)
+        except CrewError as exc:
+            command([
+                "herdr", "notification", "show", f"DBZ Crew: {args.task_id}",
+                "--body", str(exc), "--sound", "request",
+            ])
 
 
 def rebase(args: argparse.Namespace) -> None:
@@ -802,6 +1338,8 @@ def rebase(args: argparse.Namespace) -> None:
     state, _, _ = current_state()
     check = require_preflight()
     worker = worker_record(state, task_id)
+    if worker.get("read_only"):
+        raise CrewError(f"read-only worker {task_id} cannot be rebased")
     if worker.get("status") in {"running", "working", "rebasing"}:
         raise CrewError(f"worker {task_id} is still active; wait for its result before requesting a rebase")
     principal_agent = check.get("principal_agent")
@@ -868,6 +1406,18 @@ def integrate(args: argparse.Namespace) -> None:
     check = require_preflight()
     repo_root = Path(str(check["repo_root"]))
     branch = args.branch
+    workers = state.get("workers")
+    worker_values = workers.values() if isinstance(workers, dict) else []
+    matching_worker = next(
+        (
+            worker
+            for worker in worker_values
+            if isinstance(worker, dict) and worker.get("branch") == branch
+        ),
+        None,
+    )
+    if isinstance(matching_worker, dict) and matching_worker.get("read_only"):
+        raise CrewError(f"read-only branch cannot be integrated: {branch}")
     command_text(["git", "rev-parse", "--verify", branch], repo_root)
     main_head = command_text(["git", "rev-parse", "main"], repo_root)
     merge_base = command_text(["git", "merge-base", "main", branch], repo_root)
@@ -911,6 +1461,24 @@ def cleanup(args: argparse.Namespace) -> None:
     if not isinstance(worktree_value, str) or not isinstance(tab_id, str):
         raise CrewError(f"worker {args.task_id} has incomplete cleanup metadata")
     worktree = Path(worktree_value)
+    if worker.get("read_only"):
+        if worker.get("read_only_mode") != "isolated":
+            raise CrewError(f"in-place read-only worker {args.task_id} has no isolated resources to clean")
+        snapshot_file, baseline = read_only_baseline(worker)
+        differences = manifest_differences(baseline, worktree_manifest(worktree))
+        if differences:
+            raise CrewError(
+                "refusing to remove a changed read-only worktree: " + ", ".join(differences[:20])
+            )
+        closed = command(["herdr", "tab", "close", tab_id])
+        if closed.returncode != 0:
+            raise CrewError(closed.stderr.strip() or closed.stdout.strip() or f"unable to close worker tab {tab_id}")
+        remove_isolated_read_only_resources(worker, baseline)
+        snapshot_file.unlink(missing_ok=True)
+        remove_worker_after_cleanup(main_pane, args.task_id)
+        print(f"Removed read-only worker {args.task_id} and branch {branch}")
+        return
+
     merged = command(["git", "merge-base", "--is-ancestor", branch, "main"], repo_root).returncode == 0
     if not merged and not args.superseded_by:
         raise CrewError(f"refusing to remove unmerged branch: {branch}")
@@ -1006,11 +1574,18 @@ def install(_: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage a DBZ Crew workflow")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("preflight")
+    preflight_parser = subparsers.add_parser("preflight")
+    preflight_parser.add_argument("--read-only", action="store_true")
+    preflight_parser.add_argument("--in-place", action="store_true")
+    preflight_parser.add_argument("--committed-only", action="store_true")
+    preflight_parser.add_argument("--base")
     dispatch_parser = subparsers.add_parser("dispatch")
     dispatch_parser.add_argument("--task-id", required=True)
     dispatch_parser.add_argument("--prompt", required=True)
     dispatch_parser.add_argument("--base")
+    dispatch_parser.add_argument("--read-only", action="store_true")
+    dispatch_parser.add_argument("--in-place", action="store_true")
+    dispatch_parser.add_argument("--committed-only", action="store_true")
     dispatch_parser.add_argument("--parallel", action="store_true")
     dispatch_parser.add_argument("--worker-provider")
     dispatch_parser.add_argument("--worker-model")
@@ -1031,13 +1606,26 @@ def main() -> None:
     cleanup_parser.add_argument("--task-id", required=True)
     cleanup_parser.add_argument("--branch", required=True)
     cleanup_parser.add_argument("--superseded-by")
+    finalizer_parser = subparsers.add_parser(
+        "finalize-read-only",
+        help="Finalize read-only worker resources (internal)",
+    )
+    finalizer_parser.add_argument("--main-pane", required=True)
+    finalizer_parser.add_argument("--task-id", required=True)
+    finalizer_parser.add_argument("--tab", required=True)
     subparsers.add_parser("status")
     subparsers.add_parser("install")
     args = parser.parse_args()
 
     try:
         if args.command == "preflight":
-            print(json.dumps(preflight(Path.cwd()), indent=2))
+            print(json.dumps(preflight(
+                Path.cwd(),
+                read_only=args.read_only,
+                in_place=args.in_place,
+                committed_only=args.committed_only,
+                base=args.base,
+            ), indent=2))
         elif args.command == "dispatch":
             dispatch(args)
         elif args.command == "monitor":
@@ -1048,6 +1636,8 @@ def main() -> None:
             rebase(args)
         elif args.command == "cleanup":
             cleanup(args)
+        elif args.command == "finalize-read-only":
+            finalize_read_only(args)
         elif args.command == "status":
             status(args)
         elif args.command == "install":

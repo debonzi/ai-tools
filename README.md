@@ -54,6 +54,12 @@ It also registers the `dbz-ai-tools` marketplace and installs the
 `dbz-crew@dbz-ai-tools` adapter plugin. DBZ Crew workers inherit the principal
 agent kind; Pi workers additionally inherit provider, model, and thinking level.
 
+DBZ Crew uses strict clean-`main` checks for implementation workers. Explicitly
+read-only workers may inspect dirty or non-main source worktrees through an
+isolated snapshot, with an opt-in live-worktree mode. See
+[`tools/dbz-crew/README.md`](tools/dbz-crew/README.md) for the command matrix and
+safety behavior.
+
 ## Security
 
 Credentials and agent-generated state are intentionally excluded. Review all

@@ -47,7 +47,12 @@ function makeHarness(sessionId: string, initialEntries: FakeEntry[] = []) {
 	return { handlers, sent, appended, notifications, ctx };
 }
 
-async function writeEvent(stateRoot: string, sessionId: string, id: string): Promise<string> {
+async function writeEvent(
+	stateRoot: string,
+	sessionId: string,
+	id: string,
+	message?: string,
+): Promise<string> {
 	const directory = completionEventDirectory(stateRoot, sessionId);
 	const result = resolve(stateRoot, "results", stableDigest("pane"), `${id}.md`);
 	await mkdir(resolve(result, ".."), { recursive: true });
@@ -64,6 +69,7 @@ async function writeEvent(stateRoot: string, sessionId: string, id: string): Pro
 			status: "done",
 			result,
 			created_at: Date.now(),
+			...(message ? { message } : {}),
 		}),
 	);
 	return path;
@@ -136,7 +142,12 @@ test("validates result paths inside the private state root", () => {
 test("recovers a pending event and always delivers it as a follow-up", { concurrency: false }, async () => {
 	await withRuntime(async (stateRoot) => {
 		const sessionId = "session-recovery";
-		await writeEvent(stateRoot, sessionId, "event-recovery");
+		await writeEvent(
+			stateRoot,
+			sessionId,
+			"event-recovery",
+			"DBZ-CREW EVENT: read-only worker worker-one implementation is done.",
+		);
 		const harness = makeHarness(sessionId);
 		await harness.handlers.get("session_start")?.({}, harness.ctx);
 		const readyPath = resolve(stateRoot, "principals", `${stableDigest(sessionId)}.json`);
@@ -145,7 +156,7 @@ test("recovers a pending event and always delivers it as a follow-up", { concurr
 		assert.equal(ready.pid, process.pid);
 		await waitFor(() => harness.sent.length === 1);
 		assert.deepEqual(harness.sent[0]?.options, { deliverAs: "followUp", triggerTurn: true });
-		assert.match(harness.sent[0]?.message.content, /worker-one implementation is done/u);
+		assert.match(harness.sent[0]?.message.content, /read-only worker worker-one implementation is done/u);
 		assert.equal(harness.appended.at(-1)?.customType, "dbz-crew-event-delivered");
 		await harness.handlers.get("session_shutdown")?.({}, harness.ctx);
 		await assert.rejects(readFile(readyPath, "utf8"), /ENOENT/u);

@@ -71,7 +71,7 @@ INTEGRATION
     "integration status ")
         if [ -f "$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts" ] &&
             grep -q 'HERDR_INTEGRATION_ID=pi' "$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts"; then
-            printf 'pi: installed (version 6)\n'
+            printf 'pi: current (v6) (/tmp/test-pi/extensions/herdr-agent-state.ts)\n'
         else
             printf 'pi: not installed\n'
         fi

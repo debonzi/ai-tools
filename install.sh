@@ -276,7 +276,7 @@ install_pi() {
     done
 
     herdr integration install pi
-    if ! herdr integration status | grep -q '^pi: installed'; then
+    if ! herdr integration status | grep -Eq '^pi: (installed|current)([[:space:]]|$)'; then
         printf 'error: Herdr Pi integration installation could not be verified\n' >&2
         exit 1
     fi
