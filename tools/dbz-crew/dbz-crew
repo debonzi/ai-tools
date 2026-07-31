@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -11,12 +13,16 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 TASK_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 WORKER_PHASES = {"implementation", "rebase"}
+SUPPORTED_AGENTS = {"codex", "pi"}
+PI_THINKING_LEVELS = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 
 
 class CrewError(RuntimeError):
@@ -69,22 +75,79 @@ def first_string(value: Any, key: str) -> str | None:
 def state_root() -> Path:
     configured = os.environ.get("DBZ_CREW_STATE_DIR")
     if configured:
-        return Path(configured).expanduser()
+        return Path(configured).expanduser().resolve()
     xdg_state = os.environ.get("XDG_STATE_HOME")
     parent = Path(xdg_state).expanduser() if xdg_state else Path.home() / ".local" / "state"
-    return parent / "dbz-crew"
+    return (parent / "dbz-crew").resolve()
+
+
+def stable_digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()[:20]
 
 
 def state_path(main_pane: str) -> Path:
-    digest = hashlib.sha256(main_pane.encode()).hexdigest()[:20]
-    return state_root() / "sessions" / f"{digest}.json"
+    return state_root() / "sessions" / f"{stable_digest(main_pane)}.json"
+
+
+def principal_ready_path(session_id: str) -> Path:
+    return state_root() / "principals" / f"{stable_digest(session_id)}.json"
+
+
+def event_directory(session_id: str) -> Path:
+    return state_root() / "events" / stable_digest(session_id)
+
+
+def ensure_private_directory(path: Path) -> None:
+    root = state_root()
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    if path == root:
+        return
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise CrewError(f"state path is outside the DBZ Crew state directory: {path}") from exc
+    current = root
+    for part in relative.parts:
+        current /= part
+        current.mkdir(exist_ok=True, mode=0o700)
+        os.chmod(current, 0o700)
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    ensure_private_directory(path.parent)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        temporary.replace(path)
+        os.chmod(path, 0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def state_lock(path: Path) -> Iterator[None]:
+    lock_path = path.with_suffix(f"{path.suffix}.lock")
+    ensure_private_directory(lock_path.parent)
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        with os.fdopen(descriptor, "r+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        os.chmod(lock_path, 0o600)
+
+
+def write_private_text(path: Path, value: str) -> None:
+    ensure_private_directory(path.parent)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(value)
+    os.chmod(path, 0o600)
 
 
 def read_json(path: Path) -> dict[str, Any] | None:
@@ -124,9 +187,59 @@ def current_state() -> tuple[dict[str, Any], Path, dict[str, Any]]:
     return state, path, pane
 
 
-def preflight(cwd: Path) -> dict[str, Any]:
+def pi_worker_configuration(overrides: dict[str, str | None] | None = None) -> dict[str, str]:
+    overrides = overrides or {}
+    values = {
+        "provider": overrides.get("provider") or os.environ.get("PI_PROVIDER"),
+        "model": overrides.get("model") or os.environ.get("PI_MODEL"),
+        "thinking": overrides.get("thinking") or os.environ.get("PI_REASONING_LEVEL"),
+    }
+    missing = [name for name, value in values.items() if not isinstance(value, str) or not value.strip()]
+    if missing:
+        raise CrewError("missing Pi worker metadata: " + ", ".join(missing))
+    resolved = {name: str(value).strip() for name, value in values.items()}
+    for name in ("provider", "model"):
+        if resolved[name].startswith("-") or "\x00" in resolved[name]:
+            raise CrewError(f"invalid Pi worker {name}")
+    if resolved["thinking"] not in PI_THINKING_LEVELS:
+        raise CrewError(
+            "Pi worker thinking must be one of " + ", ".join(sorted(PI_THINKING_LEVELS))
+        )
+    return resolved
+
+
+def pi_event_bridge_ready(session_id: str) -> bool:
+    marker = read_json(principal_ready_path(session_id))
+    if marker is None or marker.get("session_id") != session_id:
+        return False
+    pid = marker.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def pi_integration_installed() -> bool:
+    result = command(["herdr", "integration", "status"])
+    if result.returncode != 0:
+        return False
+    return any(line.strip().startswith("pi: installed") for line in result.stdout.splitlines())
+
+
+def herdr_supports_pi_workers() -> bool:
+    result = command(["herdr", "agent", "start", "--help"])
+    return result.returncode == 0 and re.search(r"\bpi\b", result.stdout + result.stderr) is not None
+
+
+def preflight(
+    cwd: Path,
+    pi_overrides: dict[str, str | None] | None = None,
+) -> dict[str, Any]:
     errors: list[str] = []
-    for binary in ("git", "herdr", "codex"):
+    for binary in ("git", "herdr"):
         if shutil.which(binary) is None:
             errors.append(f"missing command: {binary}")
 
@@ -135,6 +248,9 @@ def preflight(cwd: Path) -> dict[str, Any]:
     head = ""
     main_pane = ""
     main_workspace = ""
+    principal_agent = ""
+    principal_session_id = ""
+    worker_config: dict[str, str] | None = None
     if "missing command: git" not in errors:
         result = command(["git", "rev-parse", "--show-toplevel"], cwd)
         if result.returncode != 0:
@@ -169,8 +285,13 @@ def preflight(cwd: Path) -> dict[str, Any]:
         else:
             try:
                 pane = current_pane()
-                if pane.get("agent") != "codex":
-                    errors.append("current Herdr pane is not a Codex agent")
+                pane_agent = pane.get("agent")
+                if isinstance(pane_agent, str) and pane_agent in SUPPORTED_AGENTS:
+                    principal_agent = pane_agent
+                    if shutil.which(principal_agent) is None:
+                        errors.append(f"missing command: {principal_agent}")
+                else:
+                    errors.append("current Herdr pane must be a Pi or Codex agent")
                 pane_id = pane.get("pane_id")
                 if isinstance(pane_id, str):
                     main_pane = pane_id
@@ -190,6 +311,23 @@ def preflight(cwd: Path) -> dict[str, Any]:
             except CrewError as exc:
                 errors.append(str(exc))
 
+    if principal_agent == "pi":
+        if not herdr_supports_pi_workers():
+            errors.append("Herdr does not support starting Pi workers")
+        if not pi_integration_installed():
+            errors.append("the official Herdr Pi integration is not installed")
+        try:
+            worker_config = pi_worker_configuration(pi_overrides)
+        except CrewError as exc:
+            errors.append(str(exc))
+        session_id = os.environ.get("PI_SESSION_ID", "").strip()
+        if not session_id:
+            errors.append("missing Pi principal session id")
+        else:
+            principal_session_id = session_id
+            if not pi_event_bridge_ready(session_id):
+                errors.append("the DBZ Crew Pi event extension is not active; reload or restart Pi")
+
     return {
         "ok": not errors,
         "errors": errors,
@@ -198,11 +336,16 @@ def preflight(cwd: Path) -> dict[str, Any]:
         "main_head": head or None,
         "main_pane": main_pane or None,
         "main_workspace": main_workspace or None,
+        "principal_agent": principal_agent or None,
+        "principal_session_id": principal_session_id or None,
+        "worker_config": worker_config,
     }
 
 
-def require_preflight() -> dict[str, Any]:
-    result = preflight(Path.cwd())
+def require_preflight(
+    pi_overrides: dict[str, str | None] | None = None,
+) -> dict[str, Any]:
+    result = preflight(Path.cwd(), pi_overrides)
     if not result["ok"]:
         raise CrewError("preflight failed: " + "; ".join(result["errors"]))
     return result
@@ -229,6 +372,61 @@ def state_for_dispatch(main_pane: str) -> tuple[dict[str, Any], Path]:
         state.setdefault("queue", [])
         state.setdefault("workers", {})
     return state, path
+
+
+def record_dispatched_worker(
+    main_pane: str,
+    task_id: str,
+    worker: dict[str, Any],
+    allow_parallel: bool,
+) -> dict[str, Any]:
+    path = state_path(main_pane)
+    with state_lock(path):
+        state, _ = state_for_dispatch(main_pane)
+        workers = state.setdefault("workers", {})
+        if not isinstance(workers, dict):
+            workers = {}
+            state["workers"] = workers
+        if task_id in workers:
+            raise CrewError(f"worker task id is already recorded: {task_id}")
+        active_tasks = active_worker_task_ids(state)
+        if active_tasks and not allow_parallel:
+            raise CrewError(
+                "an implementation worker became active during dispatch: "
+                + ", ".join(active_tasks)
+                + "; retry with --parallel only for a separately requested task"
+            )
+        workers[task_id] = worker
+        write_json(path, state)
+        return state
+
+
+def remove_recorded_worker(main_pane: str, task_id: str) -> None:
+    path = state_path(main_pane)
+    with state_lock(path):
+        state = read_json(path)
+        workers = state.get("workers") if state else None
+        if state is None or not isinstance(workers, dict):
+            return
+        workers.pop(task_id, None)
+        write_json(path, state)
+
+
+def set_recorded_worker_status(main_pane: str, task_id: str, status: str) -> str | None:
+    path = state_path(main_pane)
+    with state_lock(path):
+        state = read_json(path)
+        if state is None:
+            raise CrewError("DBZ Crew state disappeared while updating a worker")
+        worker = worker_record(state, task_id)
+        previous = worker.get("status")
+        worker["status"] = status
+        write_json(path, state)
+        return previous if isinstance(previous, str) else None
+
+
+def remove_worker_after_cleanup(main_pane: str, task_id: str) -> None:
+    remove_recorded_worker(main_pane, task_id)
 
 
 def safe_task_id(value: str) -> str:
@@ -290,21 +488,49 @@ def worktree_path(repo_root: Path, branch: str) -> Path:
     return state_root() / "worktrees" / repository_id / branch_slug
 
 
-def cleanup_failed_dispatch(repo_root: Path, branch: str, worktree: Path, tab_id: str | None) -> str | None:
+def cleanup_failed_dispatch(
+    repo_root: Path,
+    branch: str,
+    worktree: Path,
+    tab_id: str | None,
+    worktree_created: bool,
+) -> str | None:
     failures: list[str] = []
     if tab_id:
         closed = command(["herdr", "tab", "close", tab_id])
         if closed.returncode != 0:
             failures.append(closed.stderr.strip() or closed.stdout.strip() or f"unable to close tab {tab_id}")
-    if worktree.exists():
+    if worktree_created and worktree.exists():
         removed = command(["git", "worktree", "remove", "--force", str(worktree)], repo_root)
         if removed.returncode != 0:
             failures.append(removed.stderr.strip() or removed.stdout.strip() or f"unable to remove {worktree}")
-    if command(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], repo_root).returncode == 0:
+    if worktree_created and command(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], repo_root
+    ).returncode == 0:
         deleted = command(["git", "branch", "-D", branch], repo_root)
         if deleted.returncode != 0:
             failures.append(deleted.stderr.strip() or deleted.stdout.strip() or f"unable to delete {branch}")
     return "; ".join(failures) or None
+
+
+def worker_start_command(
+    name: str,
+    agent_kind: str,
+    pane: str,
+    worker_config: dict[str, str] | None,
+) -> list[str]:
+    start = [
+        "herdr", "agent", "start", name, "--kind", agent_kind, "--pane", pane,
+        "--timeout", "30000",
+    ]
+    if agent_kind == "pi":
+        if worker_config is None:
+            raise CrewError("Pi worker configuration is unavailable")
+        start.extend([
+            "--", "--provider", worker_config["provider"], "--model", worker_config["model"],
+            "--thinking", worker_config["thinking"],
+        ])
+    return start
 
 
 def launch_monitor(
@@ -313,27 +539,43 @@ def launch_monitor(
     worker: str,
     task_id: str,
     prompt_file: Path,
+    principal_agent: str,
+    principal_session_id: str | None,
     phase: str = "implementation",
 ) -> None:
-    monitor = command(
-        [
-            "herdr", "pane", "run", monitor_pane, str(Path(__file__).resolve()), "monitor",
-            "--main-pane", main_pane, "--worker", worker, "--task-id", task_id,
-            "--prompt-file", str(prompt_file), "--phase", phase,
-        ]
-    )
+    monitor_args = [
+        "herdr", "pane", "run", monitor_pane, "env", f"DBZ_CREW_STATE_DIR={state_root()}",
+        str(Path(__file__).resolve()), "monitor",
+        "--main-pane", main_pane, "--worker", worker, "--task-id", task_id,
+        "--prompt-file", str(prompt_file), "--phase", phase,
+        "--principal-agent", principal_agent,
+    ]
+    if principal_session_id:
+        monitor_args.extend(["--principal-session-id", principal_session_id])
+    monitor = command(monitor_args)
     if monitor.returncode != 0:
         raise CrewError(monitor.stderr.strip() or monitor.stdout.strip() or "unable to start worker monitor")
 
 
 def dispatch(args: argparse.Namespace) -> None:
     task_id = safe_task_id(args.task_id)
-    check = require_preflight()
+    overrides = {
+        "provider": args.worker_provider,
+        "model": args.worker_model,
+        "thinking": args.worker_thinking,
+    }
+    check = require_preflight(overrides)
     main_pane = check["main_pane"]
     main_workspace = check["main_workspace"]
+    principal_agent = check["principal_agent"]
+    principal_session_id = check["principal_session_id"]
+    worker_config = check["worker_config"]
     assert isinstance(main_pane, str)
     assert isinstance(main_workspace, str)
-    state, state_file = state_for_dispatch(main_pane)
+    assert isinstance(principal_agent, str)
+    assert principal_session_id is None or isinstance(principal_session_id, str)
+    assert worker_config is None or isinstance(worker_config, dict)
+    state, _ = state_for_dispatch(main_pane)
     active_tasks = active_worker_task_ids(state)
     if active_tasks and not args.parallel:
         raise CrewError(
@@ -355,9 +597,11 @@ def dispatch(args: argparse.Namespace) -> None:
     tab_id: str | None = None
     prompt_file = task_path(main_pane, task_id)
     worker_recorded = False
+    worktree_created = False
     try:
-        worker_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_private_directory(worker_path.parent)
         command_text(["git", "worktree", "add", "-b", branch, str(worker_path), base], repo_root)
+        worktree_created = True
 
         tab = command(
             [
@@ -374,9 +618,13 @@ def dispatch(args: argparse.Namespace) -> None:
             raise CrewError("Herdr did not return a worker tab and root pane")
 
         name = worker_name(task_id, state)
-        started = command(["herdr", "agent", "start", name, "--kind", "codex", "--pane", root_pane, "--timeout", "30000"])
+        started = command(worker_start_command(name, principal_agent, root_pane, worker_config))
         if started.returncode != 0:
-            raise CrewError(started.stderr.strip() or started.stdout.strip() or "unable to start worker Codex")
+            raise CrewError(
+                started.stderr.strip()
+                or started.stdout.strip()
+                or f"unable to start worker {principal_agent}"
+            )
         split = command(["herdr", "pane", "split", root_pane, "--direction", "down", "--cwd", str(worker_path), "--no-focus"])
         if split.returncode != 0:
             raise CrewError(split.stderr.strip() or split.stdout.strip() or "unable to create worker monitor pane")
@@ -393,41 +641,47 @@ def dispatch(args: argparse.Namespace) -> None:
             "final response with `DBZ-CREW RESULT:` followed by summary, validation, and blockers.\n\n"
             + args.prompt
         )
-        prompt_file.parent.mkdir(parents=True, exist_ok=True)
-        prompt_file.write_text(worker_prompt, encoding="utf-8")
+        write_private_text(prompt_file, worker_prompt)
 
-        workers = state.setdefault("workers", {})
-        if not isinstance(workers, dict):
-            workers = {}
-            state["workers"] = workers
-        workers[task_id] = {
-            "agent": name,
-            "branch": branch,
-            "workspace": main_workspace,
-            "tab": tab_id,
-            "worktree": str(worker_path),
-            "worker_pane": root_pane,
-            "monitor_pane": monitor_pane,
-            "status": "running",
-        }
-        write_json(state_file, state)
+        state = record_dispatched_worker(
+            main_pane,
+            task_id,
+            {
+                "agent": name,
+                "agent_kind": principal_agent,
+                "branch": branch,
+                "workspace": main_workspace,
+                "tab": tab_id,
+                "worktree": str(worker_path),
+                "worker_pane": root_pane,
+                "monitor_pane": monitor_pane,
+                "principal_session_id": principal_session_id,
+                "worker_config": worker_config,
+                "status": "running",
+            },
+            args.parallel,
+        )
         worker_recorded = True
 
-        launch_monitor(monitor_pane, main_pane, name, task_id, prompt_file)
+        launch_monitor(
+            monitor_pane, main_pane, name, task_id, prompt_file,
+            principal_agent, principal_session_id,
+        )
     except CrewError as exc:
-        workers = state.get("workers")
-        if worker_recorded and isinstance(workers, dict):
-            workers.pop(task_id, None)
-            write_json(state_file, state)
+        if worker_recorded:
+            remove_recorded_worker(main_pane, task_id)
         prompt_file.unlink(missing_ok=True)
-        cleanup_error = cleanup_failed_dispatch(repo_root, branch, worker_path, tab_id)
+        cleanup_error = cleanup_failed_dispatch(
+            repo_root, branch, worker_path, tab_id, worktree_created,
+        )
         if cleanup_error:
             raise CrewError(f"{exc}; dispatch cleanup failed: {cleanup_error}") from exc
         raise
 
     print(json.dumps({
-        "task_id": task_id, "worker": name, "branch": branch, "workspace": main_workspace,
-        "tab": tab_id, "worktree": str(worker_path), "monitor_pane": monitor_pane,
+        "task_id": task_id, "worker": name, "agent_kind": principal_agent, "branch": branch,
+        "workspace": main_workspace, "tab": tab_id, "worktree": str(worker_path),
+        "monitor_pane": monitor_pane, "worker_config": worker_config,
     }, indent=2))
 
 
@@ -437,65 +691,129 @@ def event_status(payload: str) -> str:
     except CrewError:
         return "failed"
     for candidate in find_values(parsed, "agent_status"):
-        if candidate in {"done", "blocked", "idle", "working"}:
-            return str(candidate)
+        if candidate in {"done", "idle"}:
+            return "done"
+        if candidate == "blocked":
+            return "blocked"
+        if candidate == "working":
+            return "failed"
     return "failed"
 
 
-def append_event(main_pane: str, task_id: str, phase: str, status: str, output_file: Path) -> None:
+def completion_event_text(task_id: str, phase: str, status: str, output_file: Path) -> str:
+    return (
+        f"DBZ-CREW EVENT: worker {task_id} {phase} is {status}. Read {output_file}, inspect "
+        "the worker state with `dbz-crew status`, report it to the user, and await an explicit user "
+        "decision before rebase, merge, or cleanup."
+    )
+
+
+def append_event(
+    main_pane: str,
+    event_id: str,
+    task_id: str,
+    phase: str,
+    status: str,
+    output_file: Path,
+) -> None:
     path = state_path(main_pane)
-    state = read_json(path)
-    if state is None:
-        return
-    queue = state.setdefault("queue", [])
-    if not isinstance(queue, list):
-        queue = []
-        state["queue"] = queue
-    queue.append({"task_id": task_id, "phase": phase, "status": status, "result": str(output_file)})
-    workers = state.get("workers")
-    if isinstance(workers, dict) and isinstance(workers.get(task_id), dict):
-        workers[task_id]["status"] = status
-        workers[task_id][f"{phase}_result"] = str(output_file)
-        if phase == "implementation":
-            workers[task_id]["result"] = str(output_file)
-    write_json(path, state)
+    with state_lock(path):
+        state = read_json(path)
+        if state is None:
+            return
+        queue = state.setdefault("queue", [])
+        if not isinstance(queue, list):
+            queue = []
+            state["queue"] = queue
+        queue.append({
+            "event_id": event_id,
+            "task_id": task_id,
+            "phase": phase,
+            "status": status,
+            "result": str(output_file),
+        })
+        workers = state.get("workers")
+        if isinstance(workers, dict) and isinstance(workers.get(task_id), dict):
+            workers[task_id]["status"] = status
+            workers[task_id][f"{phase}_result"] = str(output_file)
+            if phase == "implementation":
+                workers[task_id]["result"] = str(output_file)
+        write_json(path, state)
+
+
+def write_completion_event(
+    event_id: str,
+    principal_session_id: str,
+    task_id: str,
+    phase: str,
+    status: str,
+    output_file: Path,
+) -> Path:
+    event_path = event_directory(principal_session_id) / f"{event_id}.json"
+    write_json(event_path, {
+        "id": event_id,
+        "principal_session_id": principal_session_id,
+        "task_id": task_id,
+        "phase": phase,
+        "status": status,
+        "result": str(output_file.resolve()),
+        "created_at": int(time.time() * 1000),
+        "message": completion_event_text(task_id, phase, status, output_file),
+    })
+    return event_path
 
 
 def monitor(args: argparse.Namespace) -> None:
     phase = safe_phase(args.phase)
     prompt = Path(args.prompt_file).read_text(encoding="utf-8")
     waited = command([
-        "herdr", "agent", "prompt", args.worker, prompt, "--wait", "--until", "done", "--until", "blocked",
+        "herdr", "agent", "prompt", args.worker, prompt, "--wait",
+        "--until", "done", "--until", "idle", "--until", "blocked",
     ])
     status = event_status(waited.stdout) if waited.returncode == 0 else "failed"
     read = command(["herdr", "agent", "read", args.worker, "--source", "recent-unwrapped", "--lines", "160"])
     output = read.stdout if read.returncode == 0 else (read.stderr or "Worker output was unavailable.")
     output_file = result_path(args.main_pane, args.task_id, phase)
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    output_file.write_text(output, encoding="utf-8")
-    append_event(args.main_pane, args.task_id, phase, status, output_file)
+    write_private_text(output_file, output)
+    event_id = f"{args.task_id}-{phase}-{uuid.uuid4().hex}"
+    append_event(args.main_pane, event_id, args.task_id, phase, status, output_file)
 
     sound = "request" if status in {"blocked", "failed"} else "done"
     body = f"{args.task_id} ({phase}): {status}. Result: {output_file}"
     command(["herdr", "notification", "show", f"DBZ Crew: {args.task_id}", "--body", body, "--sound", sound])
-    event = (
-        f"DBZ-CREW EVENT: worker {args.task_id} {phase} is {status}. Read {output_file}, inspect "
-        "the worker state with `dbz-crew status`, report it to the user, and await an explicit user "
-        "decision before rebase, merge, or cleanup."
-    )
-    # Prompt delivery is asynchronous in Herdr. Waiting for the principal to become
-    # idle would keep this monitor pane occupied indefinitely, preventing a later
-    # rebase from reusing the original worker's monitor session.
-    command(["herdr", "agent", "prompt", args.main_pane, event])
+    event = completion_event_text(args.task_id, phase, status, output_file)
+    if args.principal_agent == "pi":
+        if not args.principal_session_id:
+            raise CrewError("Pi completion event has no principal session id")
+        write_completion_event(
+            event_id, args.principal_session_id, args.task_id, phase, status, output_file,
+        )
+        return
+
+    available = command([
+        "herdr", "agent", "wait", args.main_pane, "--until", "idle", "--until", "done",
+    ])
+    if available.returncode == 0:
+        command(["herdr", "agent", "prompt", args.main_pane, event])
 
 
 def rebase(args: argparse.Namespace) -> None:
     task_id = safe_task_id(args.task_id)
-    state, state_file, _ = current_state()
+    state, _, _ = current_state()
     check = require_preflight()
     worker = worker_record(state, task_id)
     if worker.get("status") in {"running", "working", "rebasing"}:
         raise CrewError(f"worker {task_id} is still active; wait for its result before requesting a rebase")
+    principal_agent = check.get("principal_agent")
+    worker_agent = worker.get("agent_kind", "codex")
+    if worker_agent != principal_agent:
+        raise CrewError(
+            f"worker {task_id} belongs to {worker_agent}, not the current {principal_agent} principal"
+        )
+    principal_session_id = worker.get("principal_session_id")
+    current_session_id = check.get("principal_session_id")
+    if worker_agent == "pi" and principal_session_id != current_session_id:
+        raise CrewError(f"resume the original Pi session before rebasing worker {task_id}")
     branch = worker.get("branch")
     worktree_value = worker.get("worktree")
     agent = worker.get("agent")
@@ -518,24 +836,25 @@ def rebase(args: argparse.Namespace) -> None:
         raise CrewError(f"worker {task_id} is on {current_branch or 'detached HEAD'}, not {branch}")
 
     prompt_file = task_path(main_pane, task_id, "rebase")
-    prompt_file.parent.mkdir(parents=True, exist_ok=True)
-    prompt_file.write_text(
+    write_private_text(
+        prompt_file,
         "You are resuming your completed DBZ-CREW implementation worker after an explicit user request. "
         f"Rebase your branch `{branch}` onto the current local `main`. Resolve conflicts, run relevant "
         "validation, and report the resulting commit. Do not run `dbz-crew preflight`: it validates the "
         "principal's main worktree and will correctly fail in a worker branch. Do not merge, push, delete "
         "worktrees, or rebase the main branch itself. Finish with `DBZ-CREW RESULT:` followed by summary, "
         "validation, and blockers.",
-        encoding="utf-8",
     )
-    previous_status = worker.get("status")
-    worker["status"] = "rebasing"
-    write_json(state_file, state)
+    previous_status = set_recorded_worker_status(main_pane, task_id, "rebasing")
     try:
-        launch_monitor(monitor_pane, main_pane, agent, task_id, prompt_file, "rebase")
+        assert isinstance(principal_agent, str)
+        assert principal_session_id is None or isinstance(principal_session_id, str)
+        launch_monitor(
+            monitor_pane, main_pane, agent, task_id, prompt_file,
+            principal_agent, principal_session_id, "rebase",
+        )
     except CrewError:
-        worker["status"] = previous_status
-        write_json(state_file, state)
+        set_recorded_worker_status(main_pane, task_id, previous_status or "done")
         prompt_file.unlink(missing_ok=True)
         raise
     print(json.dumps({
@@ -572,9 +891,12 @@ def integrate(args: argparse.Namespace) -> None:
 
 
 def cleanup(args: argparse.Namespace) -> None:
-    state, state_file, _ = current_state()
+    state, _, _ = current_state()
     check = require_preflight()
     repo_root = Path(str(check["repo_root"]))
+    main_pane = check.get("main_pane")
+    if not isinstance(main_pane, str):
+        raise CrewError("current Herdr pane has no pane_id")
     branch = args.branch
     workers = state.get("workers")
     if not isinstance(workers, dict):
@@ -608,8 +930,7 @@ def cleanup(args: argparse.Namespace) -> None:
     deleted = command(["git", "branch", delete_flag, branch], repo_root)
     if deleted.returncode != 0:
         raise CrewError(deleted.stderr.strip() or deleted.stdout.strip() or "worktree removed but branch was retained")
-    workers.pop(args.task_id, None)
-    write_json(state_file, state)
+    remove_worker_after_cleanup(main_pane, args.task_id)
     print(f"Removed worker {args.task_id} and branch {branch}")
 
 
@@ -635,8 +956,8 @@ def status(_: argparse.Namespace) -> None:
 def install(_: argparse.Namespace) -> None:
     marketplace_name = "dbz-ai-tools"
     plugin_id = f"dbz-crew@{marketplace_name}"
-    plugin_root = Path(__file__).resolve().parents[1]
-    marketplace_root = Path(__file__).resolve().parents[5]
+    marketplace_root = Path(__file__).resolve().parents[2]
+    plugin_root = marketplace_root / "agents" / "codex" / "plugins" / "dbz-crew"
     marketplace_file = marketplace_root / ".agents" / "plugins" / "marketplace.json"
     if not marketplace_file.is_file():
         raise CrewError(f"marketplace.json not found at {marketplace_file}")
@@ -678,7 +999,8 @@ def install(_: argparse.Namespace) -> None:
     elif installed_path != expected_plugin:
         raise CrewError(f"plugin {plugin_id} points to {installed_path}; expected {expected_plugin}")
     else:
-        print(f"{plugin_id} already installed from {expected}")
+        command_text(["codex", "plugin", "add", plugin_id, "--json"])
+        print(f"Refreshed {plugin_id} from {expected}")
 
 
 def main() -> None:
@@ -690,12 +1012,17 @@ def main() -> None:
     dispatch_parser.add_argument("--prompt", required=True)
     dispatch_parser.add_argument("--base")
     dispatch_parser.add_argument("--parallel", action="store_true")
+    dispatch_parser.add_argument("--worker-provider")
+    dispatch_parser.add_argument("--worker-model")
+    dispatch_parser.add_argument("--worker-thinking")
     monitor_parser = subparsers.add_parser("monitor")
     monitor_parser.add_argument("--main-pane", required=True)
     monitor_parser.add_argument("--worker", required=True)
     monitor_parser.add_argument("--task-id", required=True)
     monitor_parser.add_argument("--prompt-file", required=True)
     monitor_parser.add_argument("--phase", default="implementation")
+    monitor_parser.add_argument("--principal-agent", choices=sorted(SUPPORTED_AGENTS), required=True)
+    monitor_parser.add_argument("--principal-session-id")
     integrate_parser = subparsers.add_parser("integrate")
     integrate_parser.add_argument("--branch", required=True)
     rebase_parser = subparsers.add_parser("rebase")

@@ -7,7 +7,8 @@ a primary focus on Pi.
 
 - `configs/`: global instructions shared by supported agents.
 - `skills/`: portable skills following the Agent Skills format.
-- `agents/pi/`: Pi settings and resource directories.
+- `tools/`: shared command-line workflows such as DBZ Crew.
+- `agents/pi/`: Pi-specific extensions and resource directories.
 - `agents/codex/`: Codex-specific plugins and integrations.
 - `.agents/plugins/marketplace.json`: the local Codex marketplace manifest.
 
@@ -26,14 +27,20 @@ to overwrite unexpected files or symlinks.
 
 ### Pi
 
-Requires `pi`. The installer links:
+Requires `pi`, `python3`, `git`, and `herdr`. The installer:
 
-- `configs/AGENTS.md` to `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/AGENTS.md`;
-- `agents/pi/settings.json` as the global settings file;
-- shared `skills/` and the Pi-specific `extensions/`, `prompts/`, and `themes/`
-  directories.
+- links `configs/AGENTS.md` to `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/AGENTS.md`;
+- keeps the global `skills/`, `extensions/`, `prompts/`, and `themes/` paths as
+  real directories and links each repository resource individually;
+- links the shared `dbz-crew` CLI into `~/.local/bin`;
+- installs Herdr's official Pi integration.
 
-Packages declared in `settings.json` are resolved by Pi itself.
+Existing third-party resources are preserved. Legacy whole-directory links from
+this repository are migrated only when their targets match exactly. Pi owns its
+mutable global `settings.json`; this repository does not link or manage it. A
+readable legacy settings link is converted to a private real file. If that link
+is already broken, replace it with a real settings file before rerunning the
+installer.
 
 ### Codex
 
@@ -41,10 +48,11 @@ Requires `codex`, `python3`, `git`, and `herdr`. The installer links:
 
 - `configs/AGENTS.md` to `${CODEX_HOME:-$HOME/.codex}/AGENTS.md`;
 - each shared skill into the Codex skills directory;
-- `dbz-crew` into `~/.local/bin`.
+- the shared `dbz-crew` CLI into `~/.local/bin`.
 
 It also registers the `dbz-ai-tools` marketplace and installs the
-`dbz-crew@dbz-ai-tools` plugin.
+`dbz-crew@dbz-ai-tools` adapter plugin. DBZ Crew workers inherit the principal
+agent kind; Pi workers additionally inherit provider, model, and thinking level.
 
 ## Security
 

@@ -1,32 +1,13 @@
-# DBZ Crew
+# DBZ Crew Codex Adapter
 
-DBZ Crew is a Codex plugin and command-line tool for explicitly delegating
-independent tasks to Codex workers in isolated Git worktrees managed through
-Herdr.
+This local Codex plugin exposes the shared `skills/dbz-crew` policy to Codex. Codex copies local plugins into an isolated cache and does not preserve out-of-tree skill symlinks, so `skills/dbz-crew/SKILL.md` is a packaging mirror of the canonical shared skill. Tests require the two files to remain identical.
 
-## Requirements
+The agent-neutral CLI lives in `tools/dbz-crew` and supports both Codex and Pi principals.
 
-- Codex
-- Herdr
-- Git
-- Python 3
-
-Install it through the repository installer:
+Install the Codex adapter through the repository installer:
 
 ```bash
 ./install.sh codex
 ```
 
-## Pi compatibility
-
-DBZ Crew is not compatible with Pi today. The current implementation:
-
-- requires the principal Herdr pane to report `agent: codex`;
-- starts every worker with `herdr agent start --kind codex`;
-- packages its invocation policy as a Codex plugin and skill;
-- sends completion events back to a Codex principal session.
-
-Future Pi support would require a Pi-specific integration for worker startup,
-resource loading, and completion delivery. Shared Git worktree and lifecycle
-logic could then be extracted from the Codex adapter, but no compatibility
-layer is implemented or planned in this version.
+See [`tools/dbz-crew/README.md`](../../../../tools/dbz-crew/README.md) for requirements, commands, state, and validation.
