@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir, userInfo } from "node:os";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
 import dbzCrewEventsExtension, {
 	completionEventDirectory,
+	resolveStateRoot,
 	stableDigest,
 	validateCompletionEvent,
 } from "./index.ts";
@@ -15,7 +16,7 @@ interface FakeEntry {
 	data: unknown;
 }
 
-function makeHarness(sessionId: string, initialEntries: FakeEntry[] = []) {
+function makeHarness(sessionId: string, initialEntries: FakeEntry[] = [], homeDirectory?: string) {
 	const handlers = new Map<string, (event: unknown, ctx: any) => unknown>();
 	const sent: Array<{ message: any; options: any }> = [];
 	const appended: FakeEntry[] = [...initialEntries];
@@ -43,7 +44,7 @@ function makeHarness(sessionId: string, initialEntries: FakeEntry[] = []) {
 			},
 		},
 	};
-	dbzCrewEventsExtension(pi as any);
+	dbzCrewEventsExtension(pi as any, { homeDirectory });
 	return { handlers, sent, appended, notifications, ctx };
 }
 
@@ -55,7 +56,7 @@ async function writeEvent(
 ): Promise<string> {
 	const directory = completionEventDirectory(stateRoot, sessionId);
 	const result = resolve(stateRoot, "results", stableDigest("pane"), `${id}.md`);
-	await mkdir(resolve(result, ".."), { recursive: true });
+	await mkdir(dirname(result), { recursive: true });
 	await writeFile(result, "DBZ-CREW RESULT: done\n");
 	await mkdir(directory, { recursive: true });
 	const path = resolve(directory, `${id}.json`);
@@ -84,26 +85,32 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 
 }
 
 async function withRuntime(
-	run: (stateRoot: string) => Promise<void>,
+	run: (stateRoot: string, homeDirectory: string) => Promise<void>,
 ): Promise<void> {
-	const stateRoot = await mkdtemp(resolve(tmpdir(), "dbz-crew-events-test-"));
+	const homeDirectory = await mkdtemp(resolve(tmpdir(), "dbz-crew-events-test-"));
+	const stateRoot = resolveStateRoot(homeDirectory);
+	await mkdir(resolve(homeDirectory, ".local"), { mode: 0o700 });
+	await mkdir(resolve(homeDirectory, ".local", "state"), { mode: 0o700 });
 	const previous = {
 		state: process.env.DBZ_CREW_STATE_DIR,
+		xdg: process.env.XDG_STATE_HOME,
 		herdr: process.env.HERDR_ENV,
 		socket: process.env.HERDR_SOCKET_PATH,
 		pane: process.env.HERDR_PANE_ID,
 		poll: process.env.DBZ_CREW_EVENT_POLL_MS,
 	};
-	process.env.DBZ_CREW_STATE_DIR = stateRoot;
+	process.env.DBZ_CREW_STATE_DIR = resolve(homeDirectory, "ignored-state");
+	process.env.XDG_STATE_HOME = resolve(homeDirectory, "ignored-xdg");
 	process.env.HERDR_ENV = "1";
 	process.env.HERDR_SOCKET_PATH = "/tmp/fake-herdr.sock";
 	process.env.HERDR_PANE_ID = "pane:test";
 	process.env.DBZ_CREW_EVENT_POLL_MS = "10";
 	try {
-		await run(stateRoot);
+		await run(stateRoot, homeDirectory);
 	} finally {
 		for (const [key, value] of Object.entries({
 			DBZ_CREW_STATE_DIR: previous.state,
+			XDG_STATE_HOME: previous.xdg,
 			HERDR_ENV: previous.herdr,
 			HERDR_SOCKET_PATH: previous.socket,
 			HERDR_PANE_ID: previous.pane,
@@ -112,9 +119,25 @@ async function withRuntime(
 			if (value === undefined) delete process.env[key];
 			else process.env[key] = value;
 		}
-		await rm(stateRoot, { recursive: true, force: true });
+		await rm(homeDirectory, { recursive: true, force: true });
 	}
 }
+
+test("uses the literal account state path without environment overrides", () => {
+	const previousState = process.env.DBZ_CREW_STATE_DIR;
+	const previousXdg = process.env.XDG_STATE_HOME;
+	process.env.DBZ_CREW_STATE_DIR = "/tmp/ignored-state";
+	process.env.XDG_STATE_HOME = "/tmp/ignored-xdg";
+	try {
+		assert.equal(resolveStateRoot("/home/example"), "/home/example/.local/state/dbz-crew");
+		assert.equal(resolveStateRoot(), resolve(userInfo().homedir, ".local", "state", "dbz-crew"));
+	} finally {
+		if (previousState === undefined) delete process.env.DBZ_CREW_STATE_DIR;
+		else process.env.DBZ_CREW_STATE_DIR = previousState;
+		if (previousXdg === undefined) delete process.env.XDG_STATE_HOME;
+		else process.env.XDG_STATE_HOME = previousXdg;
+	}
+});
 
 test("validates result paths inside the private state root", () => {
 	const root = "/tmp/dbz-state";
@@ -140,7 +163,7 @@ test("validates result paths inside the private state root", () => {
 });
 
 test("recovers a pending event and always delivers it as a follow-up", { concurrency: false }, async () => {
-	await withRuntime(async (stateRoot) => {
+	await withRuntime(async (stateRoot, homeDirectory) => {
 		const sessionId = "session-recovery";
 		await writeEvent(
 			stateRoot,
@@ -148,7 +171,7 @@ test("recovers a pending event and always delivers it as a follow-up", { concurr
 			"event-recovery",
 			"DBZ-CREW EVENT: read-only worker worker-one implementation is done.",
 		);
-		const harness = makeHarness(sessionId);
+		const harness = makeHarness(sessionId, [], homeDirectory);
 		await harness.handlers.get("session_start")?.({}, harness.ctx);
 		const readyPath = resolve(stateRoot, "principals", `${stableDigest(sessionId)}.json`);
 		const ready = JSON.parse(await readFile(readyPath, "utf8")) as { session_id?: unknown; pid?: unknown };
@@ -164,9 +187,9 @@ test("recovers a pending event and always delivers it as a follow-up", { concurr
 });
 
 test("does not deliver an event owned by another Pi session", { concurrency: false }, async () => {
-	await withRuntime(async (stateRoot) => {
+	await withRuntime(async (stateRoot, homeDirectory) => {
 		await writeEvent(stateRoot, "session-other", "event-other");
-		const harness = makeHarness("session-current");
+		const harness = makeHarness("session-current", [], homeDirectory);
 		await harness.handlers.get("session_start")?.({}, harness.ctx);
 		await new Promise((resolvePromise) => setTimeout(resolvePromise, 80));
 		assert.equal(harness.sent.length, 0);
@@ -175,12 +198,12 @@ test("does not deliver an event owned by another Pi session", { concurrency: fal
 });
 
 test("removes an already delivered pending event without redelivery", { concurrency: false }, async () => {
-	await withRuntime(async (stateRoot) => {
+	await withRuntime(async (stateRoot, homeDirectory) => {
 		const sessionId = "session-idempotent";
 		const eventPath = await writeEvent(stateRoot, sessionId, "event-idempotent");
 		const harness = makeHarness(sessionId, [
 			{ type: "custom", customType: "dbz-crew-event-delivered", data: { id: "event-idempotent" } },
-		]);
+		], homeDirectory);
 		await harness.handlers.get("session_start")?.({}, harness.ctx);
 		await waitFor(async () => {
 			try {
@@ -191,6 +214,62 @@ test("removes an already delivered pending event without redelivery", { concurre
 			}
 		});
 		assert.equal(harness.sent.length, 0);
+		await harness.handlers.get("session_shutdown")?.({}, harness.ctx);
+	});
+});
+
+test("repairs safe state-root permissions", { concurrency: false }, async () => {
+	await withRuntime(async (stateRoot, homeDirectory) => {
+		await mkdir(stateRoot, { recursive: true });
+		await chmod(stateRoot, 0o755);
+		const harness = makeHarness("session-permissions", [], homeDirectory);
+		await harness.handlers.get("session_start")?.({}, harness.ctx);
+		assert.equal((await stat(stateRoot)).mode & 0o777, 0o700);
+		await harness.handlers.get("session_shutdown")?.({}, harness.ctx);
+	});
+});
+
+test("disables delivery for a symlinked state root without altering its target", { concurrency: false }, async () => {
+	await withRuntime(async (stateRoot, homeDirectory) => {
+		await mkdir(dirname(stateRoot), { recursive: true });
+		const target = resolve(homeDirectory, "unexpected-target");
+		await mkdir(target, { mode: 0o755 });
+		await chmod(target, 0o755);
+		await symlink(target, stateRoot, "dir");
+		const harness = makeHarness("session-symlink", [], homeDirectory);
+		await harness.handlers.get("session_start")?.({}, harness.ctx);
+		assert.equal(harness.sent.length, 0);
+		assert.match(harness.notifications.at(-1)?.message ?? "", /symbolic link/u);
+		assert.equal((await stat(target)).mode & 0o777, 0o755);
+	});
+});
+
+test("rejects a repository-local state root before creating it", { concurrency: false }, async () => {
+	await withRuntime(async (stateRoot, homeDirectory) => {
+		await mkdir(resolve(homeDirectory, ".git"));
+		const harness = makeHarness("session-repository", [], homeDirectory);
+		await harness.handlers.get("session_start")?.({}, harness.ctx);
+		assert.match(harness.notifications.at(-1)?.message ?? "", /inside a Git worktree/u);
+		await assert.rejects(stat(stateRoot), /ENOENT/u);
+	});
+});
+
+test("rejects a completion result symlink without reading its target", { concurrency: false }, async () => {
+	await withRuntime(async (stateRoot, homeDirectory) => {
+		const sessionId = "session-result-symlink";
+		const eventId = "event-result-symlink";
+		await writeEvent(stateRoot, sessionId, eventId);
+		const resultPath = resolve(stateRoot, "results", stableDigest("pane"), `${eventId}.md`);
+		const external = resolve(homeDirectory, "external-result.md");
+		await writeFile(external, "preserve\n");
+		await rm(resultPath);
+		await symlink(external, resultPath);
+
+		const harness = makeHarness(sessionId, [], homeDirectory);
+		await harness.handlers.get("session_start")?.({}, harness.ctx);
+		await waitFor(() => harness.notifications.some(({ message }) => /invalid completion event/u.test(message)));
+		assert.equal(harness.sent.length, 0);
+		assert.equal(await readFile(external, "utf8"), "preserve\n");
 		await harness.handlers.get("session_shutdown")?.({}, harness.ctx);
 	});
 });

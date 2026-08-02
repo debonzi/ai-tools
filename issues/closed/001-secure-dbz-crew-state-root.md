@@ -1,8 +1,9 @@
 ---
 created: 2026-07-31
-status: open
+status: closed
 title: "Secure DBZ Crew State Root Handling"
 dependencies: []
+closed: 2026-08-02
 ---
 
 ## Description

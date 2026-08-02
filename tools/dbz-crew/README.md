@@ -60,7 +60,7 @@ Workers never merge, push, rebase `main`, or remove implementation worktrees. Im
 
 ## State and completion
 
-State defaults to `${XDG_STATE_HOME:-~/.local/state}/dbz-crew` and can be moved with `DBZ_CREW_STATE_DIR`. Prompts, results, and completion events are private local state and must not be committed.
+State is always stored in `~/.local/state/dbz-crew`; `DBZ_CREW_STATE_DIR` and `XDG_STATE_HOME` do not change this location. Prompts, results, and completion events are private local state and must not be committed.
 
 Pi completion events are delivered only to the original Pi session and use follow-up delivery, so they do not steer an active principal turn. Codex delivery waits until its principal is available. Read-only result files and events remain available after automatic resource cleanup.
 

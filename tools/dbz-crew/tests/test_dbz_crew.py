@@ -30,11 +30,17 @@ class CrewTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.state_root = Path(self.temporary.name) / "state"
+        self.home = Path(self.temporary.name) / "home"
+        self.home.mkdir(mode=0o700)
+        self.state_root = self.home / ".local" / "state" / "dbz-crew"
+        self.account_home = mock.patch.object(CREW, "account_home", return_value=self.home)
+        self.account_home.start()
+        self.addCleanup(self.account_home.stop)
         self.environment = mock.patch.dict(
             os.environ,
             {
-                "DBZ_CREW_STATE_DIR": str(self.state_root),
+                "DBZ_CREW_STATE_DIR": str(Path(self.temporary.name) / "ignored-state"),
+                "XDG_STATE_HOME": str(Path(self.temporary.name) / "ignored-xdg"),
                 "PI_PROVIDER": "openai-codex",
                 "PI_MODEL": "gpt-test",
                 "PI_REASONING_LEVEL": "high",
@@ -63,6 +69,89 @@ class CrewTest(unittest.TestCase):
         self.git(repository, "config", "user.name", "DBZ Crew Test")
         self.git(repository, "config", "user.email", "dbz-crew@example.invalid")
         return repository
+
+    def test_state_root_is_literal_and_ignores_environment_overrides(self) -> None:
+        self.assertEqual(CREW.state_root(), self.state_root)
+        self.assertNotEqual(CREW.state_root(), Path(os.environ["DBZ_CREW_STATE_DIR"]))
+        self.assertNotEqual(CREW.state_root().parent, Path(os.environ["XDG_STATE_HOME"]))
+
+    def test_safe_state_root_permissions_are_repaired(self) -> None:
+        (self.home / ".local").mkdir(mode=0o700)
+        self.state_root.parent.mkdir(mode=0o700)
+        self.state_root.mkdir(mode=0o755)
+        os.chmod(self.state_root, 0o755)
+
+        CREW.ensure_private_directory(self.state_root)
+
+        self.assertEqual(stat.S_IMODE(self.state_root.stat().st_mode), 0o700)
+
+    def test_symlinked_state_root_is_rejected_without_altering_target(self) -> None:
+        (self.home / ".local").mkdir(mode=0o700)
+        self.state_root.parent.mkdir(mode=0o700)
+        target = Path(self.temporary.name) / "unexpected-target"
+        target.mkdir(mode=0o755)
+        os.chmod(target, 0o755)
+        self.state_root.symlink_to(target, target_is_directory=True)
+
+        with self.assertRaisesRegex(CREW.CrewError, "symbolic link"):
+            CREW.ensure_private_directory(self.state_root)
+
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o755)
+
+    def test_symlinked_state_child_and_file_are_rejected(self) -> None:
+        CREW.ensure_private_directory(self.state_root)
+        external_directory = Path(self.temporary.name) / "external-results"
+        external_directory.mkdir()
+        results = self.state_root / "results"
+        results.symlink_to(external_directory, target_is_directory=True)
+
+        with self.assertRaisesRegex(CREW.CrewError, "symbolic link"):
+            CREW.write_private_text(results / "pane" / "result.md", "unexpected\n")
+        self.assertEqual(list(external_directory.iterdir()), [])
+
+        results.unlink()
+        result_directory = results / "pane"
+        CREW.ensure_private_directory(result_directory)
+        external_file = Path(self.temporary.name) / "external-file"
+        external_file.write_text("preserve\n", encoding="utf-8")
+        result_file = result_directory / "result.md"
+        result_file.symlink_to(external_file)
+
+        with self.assertRaisesRegex(CREW.CrewError, "symbolic link"):
+            CREW.write_private_text(result_file, "unexpected\n")
+        self.assertEqual(external_file.read_text(encoding="utf-8"), "preserve\n")
+
+    def test_symlinked_state_lock_is_rejected_without_touching_target(self) -> None:
+        path = CREW.state_path("pane:test")
+        CREW.ensure_private_directory(path.parent)
+        target = Path(self.temporary.name) / "lock-target"
+        target.write_text("preserve\n", encoding="utf-8")
+        os.chmod(target, 0o644)
+        lock_path = path.with_suffix(f"{path.suffix}.lock")
+        lock_path.symlink_to(target)
+
+        with self.assertRaisesRegex(CREW.CrewError, "lock cannot be a symbolic link"):
+            with CREW.state_lock(path):
+                pass
+
+        self.assertEqual(target.read_text(encoding="utf-8"), "preserve\n")
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
+
+    def test_repository_local_state_root_is_rejected_before_creation(self) -> None:
+        self.git(self.home, "init", "-b", "main")
+
+        with self.assertRaisesRegex(CREW.CrewError, "inside a Git worktree"):
+            CREW.ensure_private_directory(self.state_root)
+
+        self.assertFalse(self.state_root.exists())
+
+    def test_state_directory_owned_by_another_uid_is_rejected_without_changes(self) -> None:
+        original_mode = stat.S_IMODE(self.home.stat().st_mode)
+        with mock.patch.object(CREW.os, "getuid", return_value=os.getuid() + 1):
+            with self.assertRaisesRegex(CREW.CrewError, "not owned by the current user"):
+                CREW.ensure_private_directory(self.state_root)
+        self.assertEqual(stat.S_IMODE(self.home.stat().st_mode), original_mode)
+        self.assertFalse(self.state_root.exists())
 
     def test_pi_worker_configuration_uses_environment_and_explicit_overrides(self) -> None:
         self.assertEqual(
@@ -106,6 +195,24 @@ class CrewTest(unittest.TestCase):
             ],
         )
         self.assertNotIn("--provider", CREW.worker_start_command("crew-test", "codex", "pane:2", None))
+
+    def test_monitor_launch_does_not_propagate_state_environment(self) -> None:
+        prompt = CREW.task_path("pane:main", "worker-one")
+        with mock.patch.object(CREW, "command", return_value=completed()) as run:
+            CREW.launch_monitor(
+                "pane:monitor",
+                "pane:main",
+                "crew-worker-one",
+                "worker-one",
+                prompt,
+                "codex",
+                None,
+            )
+
+        arguments = run.call_args.args[0]
+        self.assertEqual(arguments[:4], ["herdr", "pane", "run", "pane:monitor"])
+        self.assertNotIn("env", arguments)
+        self.assertFalse(any("DBZ_CREW_STATE_DIR" in argument for argument in arguments))
 
     def test_idle_worker_state_is_normalized_to_done(self) -> None:
         self.assertEqual(CREW.event_status('{"result":{"agent_status":"idle"}}'), "done")

@@ -6,7 +6,7 @@ The extension is inert outside an interactive Herdr-managed Pi process. It does 
 
 ## State
 
-Events and readiness markers use `${DBZ_CREW_STATE_DIR}` or `${XDG_STATE_HOME:-~/.local/state}/dbz-crew`. Events are validated against the current Pi session and may reference results only inside DBZ Crew's private results directory.
+Events and readiness markers always use `~/.local/state/dbz-crew`; `DBZ_CREW_STATE_DIR` and `XDG_STATE_HOME` do not change this location. Events are validated against the current Pi session and may reference only regular, current-user result files inside DBZ Crew's private results directory.
 
 The delivery guarantee is at least once across process interruption. Event IDs and session entries suppress duplicate delivery during normal operation and after completed acknowledgement.
 

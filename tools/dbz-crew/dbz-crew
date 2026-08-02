@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import errno
 import fcntl
 import hashlib
 import json
 import os
+import pwd
 import re
 import shutil
 import stat
@@ -25,6 +27,9 @@ WORKER_PHASES = {"implementation", "rebase"}
 SUPPORTED_AGENTS = {"codex", "pi"}
 PI_THINKING_LEVELS = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 READ_ONLY_MODES = {"isolated", "in-place"}
+STATE_DIRECTORY_PARTS = (".local", "state", "dbz-crew")
+PRIVATE_DIRECTORY_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
 
 
 class CrewError(RuntimeError):
@@ -86,13 +91,370 @@ def first_string(value: Any, key: str) -> str | None:
     return None
 
 
+def account_home() -> Path:
+    """Return the current account home without consulting environment variables."""
+    try:
+        home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except (KeyError, OSError) as exc:
+        raise CrewError(f"unable to resolve the current account home: {exc}") from exc
+    if not home.is_absolute():
+        raise CrewError(f"the current account home is not absolute: {home}")
+    return home
+
+
 def state_root() -> Path:
-    configured = os.environ.get("DBZ_CREW_STATE_DIR")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    xdg_state = os.environ.get("XDG_STATE_HOME")
-    parent = Path(xdg_state).expanduser() if xdg_state else Path.home() / ".local" / "state"
-    return (parent / "dbz-crew").resolve()
+    return account_home().joinpath(*STATE_DIRECTORY_PARTS)
+
+
+def _state_open_flags(*, directory: bool = False) -> int:
+    required = ("O_CLOEXEC", "O_NOFOLLOW")
+    missing = [name for name in required if not hasattr(os, name)]
+    if directory and not hasattr(os, "O_DIRECTORY"):
+        missing.append("O_DIRECTORY")
+    if missing:
+        raise CrewError("secure state handling is unavailable: missing " + ", ".join(missing))
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+    if directory:
+        flags |= os.O_DIRECTORY
+    return flags
+
+
+def _validate_owned_directory(descriptor: int, path: Path, *, private: bool) -> None:
+    try:
+        info = os.fstat(descriptor)
+    except OSError as exc:
+        raise CrewError(f"unable to inspect DBZ Crew state directory {path}: {exc}") from exc
+    if not stat.S_ISDIR(info.st_mode):
+        raise CrewError(f"DBZ Crew state path is not a directory: {path}")
+    if info.st_uid != os.getuid():
+        raise CrewError(f"DBZ Crew state directory is not owned by the current user: {path}")
+    if private:
+        try:
+            os.fchmod(descriptor, PRIVATE_DIRECTORY_MODE)
+        except OSError as exc:
+            raise CrewError(f"unable to make DBZ Crew state directory private {path}: {exc}") from exc
+    elif info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise CrewError(f"DBZ Crew state parent is writable by other users: {path}")
+
+
+def _validate_owned_file(descriptor: int, path: Path) -> None:
+    try:
+        info = os.fstat(descriptor)
+    except OSError as exc:
+        raise CrewError(f"unable to inspect DBZ Crew state file {path}: {exc}") from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise CrewError(f"DBZ Crew state path is not a regular file: {path}")
+    if info.st_uid != os.getuid():
+        raise CrewError(f"DBZ Crew state file is not owned by the current user: {path}")
+    try:
+        os.fchmod(descriptor, PRIVATE_FILE_MODE)
+    except OSError as exc:
+        raise CrewError(f"unable to make DBZ Crew state file private {path}: {exc}") from exc
+
+
+def _reject_repository_local_state_root(root: Path) -> None:
+    current = root
+    while True:
+        marker = current / ".git"
+        try:
+            os.lstat(marker)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise CrewError(f"unable to inspect DBZ Crew state ancestry at {marker}: {exc}") from exc
+        else:
+            raise CrewError(f"DBZ Crew state directory cannot be inside a Git worktree: {root}")
+        parent = current.parent
+        if parent == current:
+            return
+        current = parent
+
+
+def _open_child_directory(
+    parent_descriptor: int,
+    name: str,
+    path: Path,
+    *,
+    create: bool,
+    private: bool,
+) -> int:
+    try:
+        info = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        if not create:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
+        try:
+            os.mkdir(name, PRIVATE_DIRECTORY_MODE, dir_fd=parent_descriptor)
+        except FileExistsError:
+            pass
+        except OSError as exc:
+            raise CrewError(f"unable to create DBZ Crew state directory {path}: {exc}") from exc
+    except OSError as exc:
+        raise CrewError(f"unable to inspect DBZ Crew state directory {path}: {exc}") from exc
+    else:
+        if stat.S_ISLNK(info.st_mode):
+            raise CrewError(f"DBZ Crew state directory cannot be a symbolic link: {path}")
+        if not stat.S_ISDIR(info.st_mode):
+            raise CrewError(f"DBZ Crew state path is not a directory: {path}")
+
+    try:
+        descriptor = os.open(name, _state_open_flags(directory=True), dir_fd=parent_descriptor)
+    except OSError as exc:
+        raise CrewError(f"unable to open DBZ Crew state directory {path} without following links: {exc}") from exc
+    try:
+        _validate_owned_directory(descriptor, path, private=private)
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+@contextmanager
+def _open_state_root(*, create: bool) -> Iterator[int]:
+    root = state_root()
+    home = account_home()
+    _reject_repository_local_state_root(root)
+    try:
+        home_descriptor = os.open(home, os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY)
+    except OSError as exc:
+        raise CrewError(f"unable to open the current account home {home}: {exc}") from exc
+    descriptors = [home_descriptor]
+    try:
+        _validate_owned_directory(home_descriptor, home, private=False)
+        current_path = home
+        for index, part in enumerate(STATE_DIRECTORY_PARTS):
+            current_path /= part
+            descriptor = _open_child_directory(
+                descriptors[-1],
+                part,
+                current_path,
+                create=create,
+                private=index == len(STATE_DIRECTORY_PARTS) - 1,
+            )
+            descriptors.append(descriptor)
+        yield descriptors[-1]
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+def _state_relative_parts(path: Path) -> tuple[str, ...]:
+    root = state_root()
+    if not path.is_absolute():
+        raise CrewError(f"DBZ Crew state path is not absolute: {path}")
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise CrewError(f"state path is outside the DBZ Crew state directory: {path}") from exc
+    if any(part in {"", ".", ".."} for part in relative.parts):
+        raise CrewError(f"DBZ Crew state path contains an unsafe component: {path}")
+    return relative.parts
+
+
+@contextmanager
+def _open_state_directory(path: Path, *, create: bool) -> Iterator[int]:
+    parts = _state_relative_parts(path)
+    with _open_state_root(create=create) as root_descriptor:
+        descriptors: list[int] = []
+        try:
+            current_descriptor = root_descriptor
+            current_path = state_root()
+            for part in parts:
+                current_path /= part
+                current_descriptor = _open_child_directory(
+                    current_descriptor,
+                    part,
+                    current_path,
+                    create=create,
+                    private=True,
+                )
+                descriptors.append(current_descriptor)
+            yield current_descriptor
+        finally:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+
+
+@contextmanager
+def _open_state_parent(path: Path, *, create: bool) -> Iterator[tuple[int, str]]:
+    parts = _state_relative_parts(path)
+    if not parts:
+        raise CrewError(f"DBZ Crew state file path names the state directory: {path}")
+    with _open_state_directory(path.parent, create=create) as descriptor:
+        yield descriptor, path.name
+
+
+def _existing_state_entry(parent_descriptor: int, name: str, path: Path) -> os.stat_result | None:
+    try:
+        return os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise CrewError(f"unable to inspect DBZ Crew state path {path}: {exc}") from exc
+
+
+def _validate_replaceable_state_file(parent_descriptor: int, name: str, path: Path) -> None:
+    info = _existing_state_entry(parent_descriptor, name, path)
+    if info is None:
+        return
+    if stat.S_ISLNK(info.st_mode):
+        raise CrewError(f"DBZ Crew state file cannot be a symbolic link: {path}")
+    if not stat.S_ISREG(info.st_mode):
+        raise CrewError(f"DBZ Crew state path is not a regular file: {path}")
+    if info.st_uid != os.getuid():
+        raise CrewError(f"DBZ Crew state file is not owned by the current user: {path}")
+
+
+def ensure_private_directory(path: Path) -> None:
+    with _open_state_directory(path, create=True):
+        pass
+
+
+def _write_private_text(path: Path, value: str) -> None:
+    with _open_state_parent(path, create=True) as (parent_descriptor, name):
+        temporary_name = f".{name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        descriptor: int | None = None
+        try:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
+            descriptor = os.open(temporary_name, flags, PRIVATE_FILE_MODE, dir_fd=parent_descriptor)
+            _validate_owned_file(descriptor, path.with_name(temporary_name))
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                descriptor = None
+                handle.write(value)
+                handle.flush()
+                os.fsync(handle.fileno())
+            _validate_replaceable_state_file(parent_descriptor, name, path)
+            os.replace(
+                temporary_name,
+                name,
+                src_dir_fd=parent_descriptor,
+                dst_dir_fd=parent_descriptor,
+            )
+        except CrewError:
+            raise
+        except OSError as exc:
+            raise CrewError(f"unable to write DBZ Crew state file {path}: {exc}") from exc
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                raise CrewError(f"unable to remove temporary DBZ Crew state file for {path}: {exc}") from exc
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    _write_private_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+@contextmanager
+def state_lock(path: Path) -> Iterator[None]:
+    lock_path = path.with_suffix(f"{path.suffix}.lock")
+    with _open_state_parent(lock_path, create=True) as (parent_descriptor, name):
+        info = _existing_state_entry(parent_descriptor, name, lock_path)
+        if info is not None:
+            if stat.S_ISLNK(info.st_mode):
+                raise CrewError(f"DBZ Crew state lock cannot be a symbolic link: {lock_path}")
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                raise CrewError(f"DBZ Crew state lock is not a safe current-user file: {lock_path}")
+        try:
+            flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW
+            descriptor = os.open(name, flags, PRIVATE_FILE_MODE, dir_fd=parent_descriptor)
+        except OSError as exc:
+            raise CrewError(f"unable to open DBZ Crew state lock {lock_path}: {exc}") from exc
+        try:
+            _validate_owned_file(descriptor, lock_path)
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with os.fdopen(descriptor, "r+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def write_private_text(path: Path, value: str) -> None:
+    _write_private_text(path, value)
+
+
+def _read_private_text(path: Path, *, missing_ok: bool) -> str | None:
+    try:
+        with _open_state_parent(path, create=False) as (parent_descriptor, name):
+            info = _existing_state_entry(parent_descriptor, name, path)
+            if info is None:
+                if missing_ok:
+                    return None
+                raise CrewError(f"DBZ Crew state file is unavailable: {path}")
+            if stat.S_ISLNK(info.st_mode):
+                raise CrewError(f"DBZ Crew state file cannot be a symbolic link: {path}")
+            try:
+                descriptor = os.open(name, _state_open_flags(), dir_fd=parent_descriptor)
+            except OSError as exc:
+                raise CrewError(f"unable to open DBZ Crew state file {path}: {exc}") from exc
+            try:
+                _validate_owned_file(descriptor, path)
+            except BaseException:
+                os.close(descriptor)
+                raise
+            try:
+                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                    return handle.read()
+            except OSError as exc:
+                raise CrewError(f"unable to read DBZ Crew state file {path}: {exc}") from exc
+    except FileNotFoundError:
+        if missing_ok:
+            return None
+        raise CrewError(f"DBZ Crew state file is unavailable: {path}") from None
+
+
+def read_private_text(path: Path) -> str:
+    value = _read_private_text(path, missing_ok=False)
+    assert value is not None
+    return value
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    value = _read_private_text(path, missing_ok=True)
+    if value is None:
+        return None
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def remove_state_file(path: Path, *, missing_ok: bool = False) -> None:
+    try:
+        with _open_state_parent(path, create=False) as (parent_descriptor, name):
+            info = _existing_state_entry(parent_descriptor, name, path)
+            if info is None:
+                if missing_ok:
+                    return
+                raise CrewError(f"DBZ Crew state file is unavailable: {path}")
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                raise CrewError(f"refusing to remove unexpected DBZ Crew state path: {path}")
+            if info.st_uid != os.getuid():
+                raise CrewError(f"refusing to remove DBZ Crew state file owned by another user: {path}")
+            try:
+                os.unlink(name, dir_fd=parent_descriptor)
+            except OSError as exc:
+                raise CrewError(f"unable to remove DBZ Crew state file {path}: {exc}") from exc
+    except FileNotFoundError:
+        if not missing_ok:
+            raise CrewError(f"DBZ Crew state file is unavailable: {path}") from None
+
+
+def state_entry_exists(path: Path) -> bool:
+    try:
+        with _open_state_parent(path, create=False) as (parent_descriptor, name):
+            return _existing_state_entry(parent_descriptor, name, path) is not None
+    except FileNotFoundError:
+        return False
 
 
 def stable_digest(value: str) -> str:
@@ -109,69 +471,6 @@ def principal_ready_path(session_id: str) -> Path:
 
 def event_directory(session_id: str) -> Path:
     return state_root() / "events" / stable_digest(session_id)
-
-
-def ensure_private_directory(path: Path) -> None:
-    root = state_root()
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(root, 0o700)
-    if path == root:
-        return
-    try:
-        relative = path.relative_to(root)
-    except ValueError as exc:
-        raise CrewError(f"state path is outside the DBZ Crew state directory: {path}") from exc
-    current = root
-    for part in relative.parts:
-        current /= part
-        current.mkdir(exist_ok=True, mode=0o700)
-        os.chmod(current, 0o700)
-
-
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    ensure_private_directory(path.parent)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        temporary.replace(path)
-        os.chmod(path, 0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-@contextmanager
-def state_lock(path: Path) -> Iterator[None]:
-    lock_path = path.with_suffix(f"{path.suffix}.lock")
-    ensure_private_directory(lock_path.parent)
-    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        with os.fdopen(descriptor, "r+", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            yield
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    finally:
-        os.chmod(lock_path, 0o600)
-
-
-def write_private_text(path: Path, value: str) -> None:
-    ensure_private_directory(path.parent)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(value)
-    os.chmod(path, 0o600)
-
-
-def read_json(path: Path) -> dict[str, Any] | None:
-    if not path.is_file():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
 
 
 def current_pane() -> dict[str, Any]:
@@ -773,7 +1072,7 @@ def cleanup_failed_dispatch(
         closed = command(["herdr", "tab", "close", tab_id])
         if closed.returncode != 0:
             failures.append(closed.stderr.strip() or closed.stdout.strip() or f"unable to close tab {tab_id}")
-    if worktree_created and worktree.exists():
+    if worktree_created and state_entry_exists(worktree):
         removed = command(["git", "worktree", "remove", "--force", str(worktree)], repo_root)
         if removed.returncode != 0:
             failures.append(removed.stderr.strip() or removed.stdout.strip() or f"unable to remove {worktree}")
@@ -817,7 +1116,7 @@ def launch_monitor(
     phase: str = "implementation",
 ) -> None:
     monitor_args = [
-        "herdr", "pane", "run", monitor_pane, "env", f"DBZ_CREW_STATE_DIR={state_root()}",
+        "herdr", "pane", "run", monitor_pane,
         str(Path(__file__).resolve()), "monitor",
         "--main-pane", main_pane, "--worker", worker, "--task-id", task_id,
         "--prompt-file", str(prompt_file), "--phase", phase,
@@ -832,6 +1131,7 @@ def launch_monitor(
 
 def dispatch(args: argparse.Namespace) -> None:
     task_id = safe_task_id(args.task_id)
+    ensure_private_directory(state_root())
     validate_read_only_options(
         args.read_only,
         args.in_place,
@@ -883,7 +1183,7 @@ def dispatch(args: argparse.Namespace) -> None:
         ).returncode == 0:
             raise CrewError(f"worker branch already exists: {branch}")
         worker_path = worktree_path(repo_root, branch)
-        if worker_path.exists():
+        if state_entry_exists(worker_path):
             raise CrewError(f"worker worktree path already exists: {worker_path}")
     else:
         worker_path = repo_root
@@ -1017,9 +1317,9 @@ def dispatch(args: argparse.Namespace) -> None:
     except CrewError as exc:
         if worker_recorded:
             remove_recorded_worker(main_pane, task_id)
-        prompt_file.unlink(missing_ok=True)
+        remove_state_file(prompt_file, missing_ok=True)
         if baseline_file is not None:
-            baseline_file.unlink(missing_ok=True)
+            remove_state_file(baseline_file, missing_ok=True)
         cleanup_error = cleanup_failed_dispatch(
             repo_root, branch or "", worker_path, tab_id, worktree_created,
         )
@@ -1129,7 +1429,7 @@ def write_completion_event(
         "task_id": task_id,
         "phase": phase,
         "status": status,
-        "result": str(output_file.resolve()),
+        "result": str(output_file),
         "created_at": int(time.time() * 1000),
         "message": message or completion_event_text(task_id, phase, status, output_file),
     })
@@ -1147,11 +1447,8 @@ def read_only_baseline(worker: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
     value = worker.get("snapshot")
     if not isinstance(value, str):
         raise CrewError("read-only worker has no recorded snapshot")
-    path = Path(value).resolve()
-    try:
-        path.relative_to(state_root())
-    except ValueError as exc:
-        raise CrewError(f"read-only snapshot is outside private state: {path}") from exc
+    path = Path(value)
+    _state_relative_parts(path)
     baseline = read_json(path)
     if baseline is None:
         raise CrewError(f"read-only snapshot is unavailable: {path}")
@@ -1241,12 +1538,12 @@ def finalize_read_only(args: argparse.Namespace) -> None:
         return
     remove_recorded_worker(args.main_pane, args.task_id)
     if snapshot_file is not None:
-        snapshot_file.unlink(missing_ok=True)
+        remove_state_file(snapshot_file, missing_ok=True)
 
 
 def monitor(args: argparse.Namespace) -> None:
     phase = safe_phase(args.phase)
-    prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+    prompt = read_private_text(Path(args.prompt_file))
     waited = command([
         "herdr", "agent", "prompt", args.worker, prompt, "--wait",
         "--until", "done", "--until", "idle", "--until", "blocked",
@@ -1393,7 +1690,7 @@ def rebase(args: argparse.Namespace) -> None:
         )
     except CrewError:
         set_recorded_worker_status(main_pane, task_id, previous_status or "done")
-        prompt_file.unlink(missing_ok=True)
+        remove_state_file(prompt_file, missing_ok=True)
         raise
     print(json.dumps({
         "task_id": task_id, "branch": branch, "worker": agent, "phase": "rebase",
@@ -1474,7 +1771,7 @@ def cleanup(args: argparse.Namespace) -> None:
         if closed.returncode != 0:
             raise CrewError(closed.stderr.strip() or closed.stdout.strip() or f"unable to close worker tab {tab_id}")
         remove_isolated_read_only_resources(worker, baseline)
-        snapshot_file.unlink(missing_ok=True)
+        remove_state_file(snapshot_file, missing_ok=True)
         remove_worker_after_cleanup(main_pane, args.task_id)
         print(f"Removed read-only worker {args.task_id} and branch {branch}")
         return
