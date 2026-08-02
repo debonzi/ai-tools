@@ -1,13 +1,13 @@
 ---
 name: dbz-crew
-description: Create explicit parallel Pi or Codex workers through Herdr, using isolated Git worktrees by default and optional read-only live-worktree exploration. Use only when the user explicitly asks to delegate a named task, create a worker, or run named tasks in parallel; do not use for ordinary planning, implementation, mentions of DBZ Crew, or status questions.
+description: Create explicit parallel Pi workers through Herdr, using isolated Git worktrees by default and optional read-only live-worktree exploration. Use only when the user explicitly asks to delegate a named task, create a worker, or run named tasks in parallel; do not use for ordinary planning, implementation, mentions of DBZ Crew, or status questions.
 ---
 
 # DBZ Crew
 
 Use this skill only for an explicit request for parallel delegation. Requests such as "delegate X", "create a worker for X", or "do X in parallel" are explicit. Do not infer parallelism from a feature request, plan, investigation request, or mention of DBZ Crew.
 
-DBZ Crew uses the same agent kind as the principal. Pi workers also inherit the principal's provider, model, and thinking level automatically. Do not select a different agent or model unless the user explicitly requests a supported Pi runtime override.
+DBZ Crew creates Pi workers that inherit the principal's provider, model, and thinking level automatically. Do not select a different provider or model unless the user explicitly requests a supported Pi runtime override.
 
 ## Dispatch
 
@@ -19,7 +19,7 @@ DBZ Crew uses the same agent kind as the principal. Pi workers also inherit the 
 - Add `--in-place` to both read-only preflight and dispatch only when the user explicitly requests live-worktree exploration and accepts weaker isolation. Never select it merely because the principal worktree is dirty.
 - If preflight fails, report the missing prerequisite and do not create a worker.
 - If the user explicitly names another independent task while a worker is active, use `--parallel` for that additional dispatch. Do not use it merely to decompose one task.
-- The command creates a new tab in the principal's existing Herdr workspace. It creates an isolated Git worktree unless the user explicitly requested `--in-place`. Do not use a native Pi or Codex subagent tool for this work.
+- The command creates a new tab in the principal's existing Herdr workspace. It creates an isolated Git worktree unless the user explicitly requested `--in-place`. Do not use a native Pi subagent tool for this work.
 - Keep the principal available: never wait for a worker. Continue the user's other requests and use `dbz-crew status` only when a snapshot is needed.
 
 This rule also applies in planning modes: dispatch only when the user explicitly requests parallel execution in that prompt.

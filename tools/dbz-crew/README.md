@@ -1,10 +1,10 @@
 # DBZ Crew
 
-DBZ Crew delegates explicitly requested independent tasks to Pi or Codex workers in isolated Git worktrees and Herdr tabs. A worker always uses the same agent kind as its principal. Pi workers also inherit the active provider, model, and thinking level.
+DBZ Crew delegates explicitly requested independent tasks from Pi to Pi workers in isolated Git worktrees and Herdr tabs. Workers inherit the active provider, model, and thinking level.
 
 ## Requirements
 
-- Pi or Codex
+- Pi
 - Herdr
 - Git
 - Python 3
@@ -17,7 +17,6 @@ Run the installer for the principal agent:
 
 ```bash
 ./install.sh pi
-./install.sh codex
 ```
 
 The Pi installer also configures Herdr's official Pi integration. Reload or restart an already running Pi session after installation.
@@ -62,7 +61,7 @@ Workers never merge, push, rebase `main`, or remove implementation worktrees. Im
 
 State is always stored in `~/.local/state/dbz-crew`; `DBZ_CREW_STATE_DIR` and `XDG_STATE_HOME` do not change this location. Prompts, results, and completion events are private local state and must not be committed.
 
-Pi completion events are delivered only to the original Pi session and use follow-up delivery, so they do not steer an active principal turn. Codex delivery waits until its principal is available. Read-only result files and events remain available after automatic resource cleanup.
+Completion events are delivered only to the original Pi session and use follow-up delivery, so they do not steer an active principal turn. Read-only result files and events remain available after automatic resource cleanup.
 
 ## Validation
 
@@ -72,4 +71,4 @@ TZ=UTC node --test agents/pi/extensions/dbz-crew-events/index.test.ts
 tests/test-install.sh
 ```
 
-The manual Pi and Codex checklist is in [`tests/SMOKE_DBZ_CREW.md`](../../tests/SMOKE_DBZ_CREW.md).
+The manual Pi checklist is in [`tests/SMOKE_DBZ_CREW.md`](../../tests/SMOKE_DBZ_CREW.md).

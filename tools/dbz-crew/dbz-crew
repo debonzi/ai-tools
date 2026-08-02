@@ -24,7 +24,7 @@ from typing import Any, Iterator
 
 TASK_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 WORKER_PHASES = {"implementation", "rebase"}
-SUPPORTED_AGENTS = {"codex", "pi"}
+PI_AGENT_KIND = "pi"
 PI_THINKING_LEVELS = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 READ_ONLY_MODES = {"isolated", "in-place"}
 STATE_DIRECTORY_PARTS = (".local", "state", "dbz-crew")
@@ -571,7 +571,7 @@ def preflight(
         )
     except CrewError as exc:
         errors.append(str(exc))
-    for binary in ("git", "herdr"):
+    for binary in ("git", "herdr", "pi"):
         if shutil.which(binary) is None:
             errors.append(f"missing command: {binary}")
 
@@ -634,12 +634,10 @@ def preflight(
             try:
                 pane = current_pane()
                 pane_agent = pane.get("agent")
-                if isinstance(pane_agent, str) and pane_agent in SUPPORTED_AGENTS:
-                    principal_agent = pane_agent
-                    if shutil.which(principal_agent) is None:
-                        errors.append(f"missing command: {principal_agent}")
+                if pane_agent == PI_AGENT_KIND:
+                    principal_agent = PI_AGENT_KIND
                 else:
-                    errors.append("current Herdr pane must be a Pi or Codex agent")
+                    errors.append("current Herdr pane must be a Pi agent")
                 pane_id = pane.get("pane_id")
                 if isinstance(pane_id, str):
                     main_pane = pane_id
@@ -659,7 +657,7 @@ def preflight(
             except CrewError as exc:
                 errors.append(str(exc))
 
-    if principal_agent == "pi":
+    if principal_agent == PI_AGENT_KIND:
         if not herdr_supports_pi_workers():
             errors.append("Herdr does not support starting Pi workers")
         if not pi_integration_installed():
@@ -1087,22 +1085,14 @@ def cleanup_failed_dispatch(
 
 def worker_start_command(
     name: str,
-    agent_kind: str,
     pane: str,
-    worker_config: dict[str, str] | None,
+    worker_config: dict[str, str],
 ) -> list[str]:
-    start = [
-        "herdr", "agent", "start", name, "--kind", agent_kind, "--pane", pane,
-        "--timeout", "30000",
+    return [
+        "herdr", "agent", "start", name, "--kind", PI_AGENT_KIND, "--pane", pane,
+        "--timeout", "30000", "--", "--provider", worker_config["provider"],
+        "--model", worker_config["model"], "--thinking", worker_config["thinking"],
     ]
-    if agent_kind == "pi":
-        if worker_config is None:
-            raise CrewError("Pi worker configuration is unavailable")
-        start.extend([
-            "--", "--provider", worker_config["provider"], "--model", worker_config["model"],
-            "--thinking", worker_config["thinking"],
-        ])
-    return start
 
 
 def launch_monitor(
@@ -1111,8 +1101,7 @@ def launch_monitor(
     worker: str,
     task_id: str,
     prompt_file: Path,
-    principal_agent: str,
-    principal_session_id: str | None,
+    principal_session_id: str,
     phase: str = "implementation",
 ) -> None:
     monitor_args = [
@@ -1120,10 +1109,8 @@ def launch_monitor(
         str(Path(__file__).resolve()), "monitor",
         "--main-pane", main_pane, "--worker", worker, "--task-id", task_id,
         "--prompt-file", str(prompt_file), "--phase", phase,
-        "--principal-agent", principal_agent,
+        "--principal-session-id", principal_session_id,
     ]
-    if principal_session_id:
-        monitor_args.extend(["--principal-session-id", principal_session_id])
     monitor = command(monitor_args)
     if monitor.returncode != 0:
         raise CrewError(monitor.stderr.strip() or monitor.stdout.strip() or "unable to start worker monitor")
@@ -1159,9 +1146,12 @@ def dispatch(args: argparse.Namespace) -> None:
     worker_config = check["worker_config"]
     assert isinstance(main_pane, str)
     assert isinstance(main_workspace, str)
-    assert isinstance(principal_agent, str)
-    assert principal_session_id is None or isinstance(principal_session_id, str)
-    assert worker_config is None or isinstance(worker_config, dict)
+    if principal_agent != PI_AGENT_KIND:
+        raise CrewError("Pi principal metadata is unavailable after preflight")
+    if not isinstance(principal_session_id, str):
+        raise CrewError("Pi principal session metadata is unavailable after preflight")
+    if not isinstance(worker_config, dict):
+        raise CrewError("Pi worker configuration is unavailable after preflight")
     state, _ = state_for_dispatch(main_pane)
     active_tasks = active_worker_task_ids(state)
     if active_tasks and not args.parallel:
@@ -1239,12 +1229,12 @@ def dispatch(args: argparse.Namespace) -> None:
             raise CrewError("Herdr did not return a worker tab and root pane")
 
         name = worker_name(task_id, state)
-        started = command(worker_start_command(name, principal_agent, root_pane, worker_config))
+        started = command(worker_start_command(name, root_pane, worker_config))
         if started.returncode != 0:
             raise CrewError(
                 started.stderr.strip()
                 or started.stdout.strip()
-                or f"unable to start worker {principal_agent}"
+                or "unable to start Pi worker"
             )
         split = command([
             "herdr", "pane", "split", root_pane, "--direction", "down",
@@ -1311,8 +1301,7 @@ def dispatch(args: argparse.Namespace) -> None:
         worker_recorded = True
 
         launch_monitor(
-            monitor_pane, main_pane, name, task_id, prompt_file,
-            principal_agent, principal_session_id,
+            monitor_pane, main_pane, name, task_id, prompt_file, principal_session_id,
         )
     except CrewError as exc:
         if worker_recorded:
@@ -1607,18 +1596,11 @@ def monitor(args: argparse.Namespace) -> None:
     body = f"{args.task_id} ({phase}): {status}. Result: {output_file}"
     command(["herdr", "notification", "show", f"DBZ Crew: {args.task_id}", "--body", body, "--sound", sound])
     event = completion_event_text(args.task_id, phase, status, output_file, read_only=read_only)
-    if args.principal_agent == "pi":
-        if not args.principal_session_id:
-            raise CrewError("Pi completion event has no principal session id")
-        write_completion_event(
-            event_id, args.principal_session_id, args.task_id, phase, status, output_file, event,
-        )
-    else:
-        available = command([
-            "herdr", "agent", "wait", args.main_pane, "--until", "idle", "--until", "done",
-        ])
-        if available.returncode == 0:
-            command(["herdr", "agent", "prompt", args.main_pane, event])
+    if not args.principal_session_id:
+        raise CrewError("Pi completion event has no principal session id")
+    write_completion_event(
+        event_id, args.principal_session_id, args.task_id, phase, status, output_file, event,
+    )
 
     if finalizer_tab is not None:
         try:
@@ -1639,15 +1621,14 @@ def rebase(args: argparse.Namespace) -> None:
         raise CrewError(f"read-only worker {task_id} cannot be rebased")
     if worker.get("status") in {"running", "working", "rebasing"}:
         raise CrewError(f"worker {task_id} is still active; wait for its result before requesting a rebase")
-    principal_agent = check.get("principal_agent")
-    worker_agent = worker.get("agent_kind", "codex")
-    if worker_agent != principal_agent:
-        raise CrewError(
-            f"worker {task_id} belongs to {worker_agent}, not the current {principal_agent} principal"
-        )
+    if check.get("principal_agent") != PI_AGENT_KIND:
+        raise CrewError("current principal is not Pi")
+    worker_agent = worker.get("agent_kind")
+    if worker_agent != PI_AGENT_KIND:
+        raise CrewError(f"worker {task_id} is not a supported Pi worker")
     principal_session_id = worker.get("principal_session_id")
     current_session_id = check.get("principal_session_id")
-    if worker_agent == "pi" and principal_session_id != current_session_id:
+    if not isinstance(principal_session_id, str) or principal_session_id != current_session_id:
         raise CrewError(f"resume the original Pi session before rebasing worker {task_id}")
     branch = worker.get("branch")
     worktree_value = worker.get("worktree")
@@ -1682,11 +1663,10 @@ def rebase(args: argparse.Namespace) -> None:
     )
     previous_status = set_recorded_worker_status(main_pane, task_id, "rebasing")
     try:
-        assert isinstance(principal_agent, str)
-        assert principal_session_id is None or isinstance(principal_session_id, str)
+        assert isinstance(principal_session_id, str)
         launch_monitor(
             monitor_pane, main_pane, agent, task_id, prompt_file,
-            principal_agent, principal_session_id, "rebase",
+            principal_session_id, "rebase",
         )
     except CrewError:
         set_recorded_worker_status(main_pane, task_id, previous_status or "done")
@@ -1818,56 +1798,6 @@ def status(_: argparse.Namespace) -> None:
     print(json.dumps(state, indent=2, sort_keys=True))
 
 
-def install(_: argparse.Namespace) -> None:
-    marketplace_name = "dbz-ai-tools"
-    plugin_id = f"dbz-crew@{marketplace_name}"
-    marketplace_root = Path(__file__).resolve().parents[2]
-    plugin_root = marketplace_root / "agents" / "codex" / "plugins" / "dbz-crew"
-    marketplace_file = marketplace_root / ".agents" / "plugins" / "marketplace.json"
-    if not marketplace_file.is_file():
-        raise CrewError(f"marketplace.json not found at {marketplace_file}")
-
-    listing = json_from_text(command_text(["codex", "plugin", "marketplace", "list", "--json"]))
-    existing_root: Path | None = None
-    for items in find_values(listing, "marketplaces"):
-        if not isinstance(items, list):
-            continue
-        for marketplace in items:
-            if isinstance(marketplace, dict) and marketplace.get("name") == marketplace_name:
-                root = marketplace.get("root")
-                if isinstance(root, str):
-                    existing_root = Path(root).expanduser().resolve()
-
-    expected = marketplace_root.resolve()
-    if existing_root is None:
-        command_text(["codex", "plugin", "marketplace", "add", str(expected)])
-    elif existing_root != expected:
-        raise CrewError(
-            f"marketplace {marketplace_name} already points to {existing_root}; expected {expected}"
-        )
-
-    plugins = json_from_text(command_text(["codex", "plugin", "list", "--json"]))
-    installed_path: Path | None = None
-    for items in find_values(plugins, "installed"):
-        if not isinstance(items, list):
-            continue
-        for plugin in items:
-            if isinstance(plugin, dict) and plugin.get("pluginId") == plugin_id:
-                path = first_string(plugin.get("source"), "path")
-                if path:
-                    installed_path = Path(path).expanduser().resolve()
-
-    expected_plugin = plugin_root.resolve()
-    if installed_path is None:
-        command_text(["codex", "plugin", "add", plugin_id])
-        print(f"Installed {plugin_id} from {expected}")
-    elif installed_path != expected_plugin:
-        raise CrewError(f"plugin {plugin_id} points to {installed_path}; expected {expected_plugin}")
-    else:
-        command_text(["codex", "plugin", "add", plugin_id, "--json"])
-        print(f"Refreshed {plugin_id} from {expected}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage a DBZ Crew workflow")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1893,8 +1823,7 @@ def main() -> None:
     monitor_parser.add_argument("--task-id", required=True)
     monitor_parser.add_argument("--prompt-file", required=True)
     monitor_parser.add_argument("--phase", default="implementation")
-    monitor_parser.add_argument("--principal-agent", choices=sorted(SUPPORTED_AGENTS), required=True)
-    monitor_parser.add_argument("--principal-session-id")
+    monitor_parser.add_argument("--principal-session-id", required=True)
     integrate_parser = subparsers.add_parser("integrate")
     integrate_parser.add_argument("--branch", required=True)
     rebase_parser = subparsers.add_parser("rebase")
@@ -1911,7 +1840,6 @@ def main() -> None:
     finalizer_parser.add_argument("--task-id", required=True)
     finalizer_parser.add_argument("--tab", required=True)
     subparsers.add_parser("status")
-    subparsers.add_parser("install")
     args = parser.parse_args()
 
     try:
@@ -1937,8 +1865,6 @@ def main() -> None:
             finalize_read_only(args)
         elif args.command == "status":
             status(args)
-        elif args.command == "install":
-            install(args)
     except CrewError as exc:
         print(f"dbz-crew: {exc}", file=sys.stderr)
         raise SystemExit(1)

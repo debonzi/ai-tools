@@ -1,6 +1,6 @@
 # DBZ Crew Smoke Test
 
-Run implementation checks from a clean `main` worktree inside a Herdr-managed session after installing the matching agent integration. Read-only checks intentionally cover dirty and non-main source worktrees.
+Run implementation checks from a clean `main` worktree inside a Herdr-managed Pi session after installing the Pi integration. Read-only checks intentionally cover dirty and non-main source worktrees.
 
 ## Pi principal and Pi worker
 
@@ -12,14 +12,6 @@ Run implementation checks from a clean `main` worktree inside a Herdr-managed se
 6. Confirm the completion does not steer the active turn and is delivered afterward as a follow-up.
 7. Confirm the principal reads the result, reports it, and does not rebase, merge, or clean up automatically.
 8. Explicitly request rebase, integration, and cleanup in separate turns and verify each safety gate.
-
-## Codex regression
-
-1. Start Codex in Herdr and run `dbz-crew preflight`.
-2. Explicitly delegate a bounded file change.
-3. Confirm the worker process is Codex and uses an isolated worktree and Herdr tab.
-4. Keep the principal busy until the worker finishes and confirm completion waits for availability.
-5. Confirm status, explicit rebase, explicit integration, and explicit cleanup retain their previous behavior.
 
 ## Read-only delegation
 

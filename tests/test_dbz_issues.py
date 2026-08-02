@@ -96,10 +96,10 @@ class DbzIssuesTest(unittest.TestCase):
 
     def test_existing_registry_is_compatible_and_ready_is_dependency_aware(self) -> None:
         issues = ISSUES.load_registry(PROJECT_ROOT / "issues")
-        self.assertEqual(len(issues), 9)
+        self.assertEqual(len(issues), 12)
         self.assertEqual(
             [issue.number for issue in ISSUES.ready_issues(issues)],
-            [1, 3, 5, 6, 8],
+            [2, 3, 6, 10, 11, 12],
         )
 
     def test_create_uses_sequential_ids_and_preserves_quoted_title(self) -> None:

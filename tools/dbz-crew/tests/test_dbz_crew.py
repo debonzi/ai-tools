@@ -173,7 +173,7 @@ class CrewTest(unittest.TestCase):
     def test_worker_start_command_passes_pi_runtime_configuration(self) -> None:
         config = CREW.pi_worker_configuration()
         self.assertEqual(
-            CREW.worker_start_command("crew-test", "pi", "pane:2", config),
+            CREW.worker_start_command("crew-test", "pane:2", config),
             [
                 "herdr",
                 "agent",
@@ -194,7 +194,6 @@ class CrewTest(unittest.TestCase):
                 "high",
             ],
         )
-        self.assertNotIn("--provider", CREW.worker_start_command("crew-test", "codex", "pane:2", None))
 
     def test_monitor_launch_does_not_propagate_state_environment(self) -> None:
         prompt = CREW.task_path("pane:main", "worker-one")
@@ -205,8 +204,7 @@ class CrewTest(unittest.TestCase):
                 "crew-worker-one",
                 "worker-one",
                 prompt,
-                "codex",
-                None,
+                "session-test",
             )
 
         arguments = run.call_args.args[0]
@@ -217,6 +215,16 @@ class CrewTest(unittest.TestCase):
     def test_idle_worker_state_is_normalized_to_done(self) -> None:
         self.assertEqual(CREW.event_status('{"result":{"agent_status":"idle"}}'), "done")
         self.assertEqual(CREW.event_status('{"result":{"agent_status":"blocked"}}'), "blocked")
+
+    def test_codex_plugin_install_subcommand_is_removed(self) -> None:
+        result = subprocess.run(
+            [str(SCRIPT), "install"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("invalid choice", result.stderr)
 
     def test_pi_integration_status_accepts_current_and_legacy_installed(self) -> None:
         cases = (
@@ -258,7 +266,7 @@ class CrewTest(unittest.TestCase):
             if key == ("herdr", "status", "server"):
                 return completed()
             if key == ("herdr", "agent", "start", "--help"):
-                return completed(stdout="possible values: pi, codex\n")
+                return completed(stdout="possible values: pi\n")
             if key == ("herdr", "integration", "status"):
                 return completed(stdout="pi: current (v6) (/home/test/.pi/agent/extensions/herdr-agent-state.ts)\n")
             raise AssertionError(f"unexpected command: {args}")
@@ -281,8 +289,8 @@ class CrewTest(unittest.TestCase):
         self.assertEqual(result["principal_session_id"], "session-test")
         self.assertEqual(result["worker_config"]["model"], "gpt-test")
 
-    def test_codex_preflight_does_not_require_pi_runtime_metadata(self) -> None:
-        repository = Path(self.temporary.name) / "codex-repo"
+    def test_codex_principal_is_rejected(self) -> None:
+        repository = Path(self.temporary.name) / "unsupported-agent-repo"
         repository.mkdir()
 
         def fake_command(args: list[str], cwd: Path | None = None):
@@ -306,7 +314,7 @@ class CrewTest(unittest.TestCase):
 
         pane = {
             "agent": "codex",
-            "pane_id": "pane:codex",
+            "pane_id": "pane:unsupported",
             "workspace_id": "workspace:main",
             "cwd": str(repository),
         }
@@ -317,8 +325,9 @@ class CrewTest(unittest.TestCase):
         ):
             result = CREW.preflight(repository)
 
-        self.assertTrue(result["ok"], result["errors"])
-        self.assertEqual(result["principal_agent"], "codex")
+        self.assertFalse(result["ok"])
+        self.assertIn("current Herdr pane must be a Pi agent", result["errors"])
+        self.assertIsNone(result["principal_agent"])
         self.assertIsNone(result["worker_config"])
 
     def test_read_only_option_validation(self) -> None:
@@ -338,6 +347,10 @@ class CrewTest(unittest.TestCase):
     def test_read_only_preflight_allows_dirty_non_main_worktree(self) -> None:
         repository = Path(self.temporary.name) / "read-only-repo"
         repository.mkdir()
+        CREW.write_json(
+            CREW.principal_ready_path("session-test"),
+            {"session_id": "session-test", "pid": os.getpid()},
+        )
 
         def fake_command(args: list[str], cwd: Path | None = None):
             key = tuple(args)
@@ -355,10 +368,14 @@ class CrewTest(unittest.TestCase):
                 return completed(returncode=1)
             if key == ("herdr", "status", "server"):
                 return completed()
+            if key == ("herdr", "agent", "start", "--help"):
+                return completed(stdout="possible values: pi\n")
+            if key == ("herdr", "integration", "status"):
+                return completed(stdout="pi: current (v6) (/tmp/herdr-agent-state.ts)\n")
             raise AssertionError(f"unexpected command: {args}")
 
         pane = {
-            "agent": "codex",
+            "agent": "pi",
             "pane_id": "pane:readonly",
             "workspace_id": "workspace:main",
             "cwd": str(repository),
@@ -481,9 +498,9 @@ class CrewTest(unittest.TestCase):
             "repo_root": str(repository),
             "main_pane": "pane:main",
             "main_workspace": "workspace:main",
-            "principal_agent": "codex",
-            "principal_session_id": None,
-            "worker_config": None,
+            "principal_agent": "pi",
+            "principal_session_id": "session-test",
+            "worker_config": CREW.pi_worker_configuration(),
             "source_head": self.git(repository, "rev-parse", "HEAD"),
             "base_head": self.git(repository, "rev-parse", "HEAD"),
         }
@@ -779,46 +796,6 @@ class CrewTest(unittest.TestCase):
         self.assertNotIn("worker-one", state["workers"])
         self.assertFalse(snapshot.exists())
         invoked.assert_called_once_with(["herdr", "tab", "close", "tab:worker"])
-
-    def test_codex_monitor_waits_for_principal_before_delivery(self) -> None:
-        pane = "pane:codex"
-        CREW.write_json(
-            CREW.state_path(pane),
-            {"main_pane": pane, "queue": [], "workers": {"worker-one": {"status": "running"}}},
-        )
-        prompt = self.state_root / "prompt-codex.txt"
-        CREW.write_private_text(prompt, "Implement the task")
-        calls: list[list[str]] = []
-
-        def fake_command(args: list[str], cwd: Path | None = None):
-            calls.append(args)
-            if args[:4] == ["herdr", "agent", "prompt", "worker-agent"]:
-                return completed(stdout='{"agent_status":"done"}\n')
-            if args[:4] == ["herdr", "agent", "read", "worker-agent"]:
-                return completed(stdout="DBZ-CREW RESULT: done\n")
-            if args[:3] == ["herdr", "notification", "show"]:
-                return completed()
-            if args[:4] == ["herdr", "agent", "wait", pane]:
-                return completed(stdout='{"agent_status":"idle"}\n')
-            if args[:4] == ["herdr", "agent", "prompt", pane]:
-                return completed()
-            raise AssertionError(f"unexpected command: {args}")
-
-        args = argparse.Namespace(
-            phase="implementation",
-            prompt_file=str(prompt),
-            worker="worker-agent",
-            main_pane=pane,
-            task_id="worker-one",
-            principal_agent="codex",
-            principal_session_id=None,
-        )
-        with mock.patch.object(CREW, "command", side_effect=fake_command):
-            CREW.monitor(args)
-
-        wait_index = next(i for i, call in enumerate(calls) if call[:4] == ["herdr", "agent", "wait", pane])
-        prompt_index = next(i for i, call in enumerate(calls) if call[:4] == ["herdr", "agent", "prompt", pane])
-        self.assertLess(wait_index, prompt_index)
 
     def test_parallel_worker_records_merge_without_lost_updates(self) -> None:
         pane = "pane:parallel"

@@ -6,7 +6,7 @@ bin_dir="$HOME/.local/bin"
 validation_failed=0
 
 usage() {
-    printf 'usage: %s <codex|configs|pi>\n' "$0"
+    printf 'usage: %s <configs|pi>\n' "$0"
 }
 
 fail_validation() {
@@ -243,45 +243,12 @@ validate_herdr_pi_destination() {
     fi
 }
 
-install_codex() {
-    local codex_home="${CODEX_HOME:-$HOME/.codex}"
-    local crew="$repo_root/tools/dbz-crew/dbz-crew"
-    local legacy_crew="$repo_root/agents/codex/plugins/dbz-crew/scripts/dbz-crew"
-    local shared_agents="$repo_root/configs/AGENTS.md"
-    local spec_skill="$repo_root/skills/dbz-spec"
-    local issues_skill="$repo_root/skills/dbz-issues"
-
-    validation_failed=0
-    for command_name in codex python3 git herdr; do
-        require_command "$command_name"
-    done
-    validate_parent_directory "$codex_home"
-    validate_parent_directory "$codex_home/skills"
-    validate_parent_directory "$bin_dir"
-    validate_link "$shared_agents" "$codex_home/AGENTS.md"
-    validate_link "$spec_skill" "$codex_home/skills/dbz-spec"
-    validate_link "$issues_skill" "$codex_home/skills/dbz-issues"
-    validate_link "$crew" "$bin_dir/dbz-crew" "$legacy_crew"
-
-    if [ "$validation_failed" -ne 0 ]; then
-        printf 'no changes made\n' >&2
-        exit 1
-    fi
-
-    mkdir -p "$codex_home/skills" "$bin_dir"
-    "$crew" install
-    install_link "$shared_agents" "$codex_home/AGENTS.md"
-    install_link "$spec_skill" "$codex_home/skills/dbz-spec"
-    install_link "$issues_skill" "$codex_home/skills/dbz-issues"
-    install_link "$crew" "$bin_dir/dbz-crew" "$legacy_crew"
-}
-
 install_pi() {
     local pi_dir="$repo_root/agents/pi"
     local agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
     local shared_agents="$repo_root/configs/AGENTS.md"
     local crew="$repo_root/tools/dbz-crew/dbz-crew"
-    local legacy_crew="$repo_root/agents/codex/plugins/dbz-crew/scripts/dbz-crew"
+    local legacy_crew_from_codex_layout="$repo_root/agents/codex/plugins/dbz-crew/scripts/dbz-crew"
     local legacy_settings="$pi_dir/settings.json"
     local optional_entries=(keybindings.json models.json SYSTEM.md APPEND_SYSTEM.md)
     local resource_names=(extensions prompts themes)
@@ -297,7 +264,7 @@ install_pi() {
     validate_parent_directory "$agent_dir"
     validate_parent_directory "$bin_dir"
     validate_link "$shared_agents" "$agent_dir/AGENTS.md"
-    validate_link "$crew" "$bin_dir/dbz-crew" "$legacy_crew"
+    validate_link "$crew" "$bin_dir/dbz-crew" "$legacy_crew_from_codex_layout"
     validate_settings_migration "$legacy_settings" "$agent_dir/settings.json"
     if [ -e "$pi_dir/extensions/herdr-agent-state.ts" ] || [ -L "$pi_dir/extensions/herdr-agent-state.ts" ]; then
         fail_validation "the Herdr-managed Pi integration is inside the repository; remove it before retrying"
@@ -328,7 +295,7 @@ install_pi() {
     mkdir -p "$agent_dir" "$bin_dir"
     migrate_settings "$legacy_settings" "$agent_dir/settings.json"
     install_link "$shared_agents" "$agent_dir/AGENTS.md"
-    install_link "$crew" "$bin_dir/dbz-crew" "$legacy_crew"
+    install_link "$crew" "$bin_dir/dbz-crew" "$legacy_crew_from_codex_layout"
     install_resource_directory "$repo_root/skills" "$agent_dir/skills"
     for resource_name in "${resource_names[@]}"; do
         install_resource_directory "$pi_dir/$resource_name" "$agent_dir/$resource_name"
@@ -414,9 +381,6 @@ if [ "$#" -ne 1 ]; then
 fi
 
 case "$1" in
-    codex)
-        install_codex
-        ;;
     configs)
         install_configs
         ;;

@@ -1,7 +1,6 @@
 # DBZ AI Tools
 
-Shared skills, extensions, tools, and configuration for AI coding agents, with
-a primary focus on Pi.
+Skills, extensions, tools, and configuration for the Pi coding agent.
 
 ## Contents
 
@@ -10,8 +9,6 @@ a primary focus on Pi.
 - `tools/`: shared command-line workflows such as DBZ Crew.
 - `issues/`: local file-based issues intended for AI-agent workflows.
 - `agents/pi/`: Pi-specific extensions and resource directories.
-- `agents/codex/`: Codex-specific plugins and integrations.
-- `.agents/plugins/marketplace.json`: the local Codex marketplace manifest.
 
 ## Install
 
@@ -20,7 +17,6 @@ Choose exactly one installation target per invocation:
 ```bash
 ./install.sh configs
 ./install.sh pi
-./install.sh codex
 ```
 
 The installer validates all prerequisites and destinations before creating
@@ -66,23 +62,14 @@ readable legacy settings link is converted to a private real file. If that link
 is already broken, replace it with a real settings file before rerunning the
 installer.
 
-### Codex
+## DBZ Crew
 
-Requires `codex`, `python3`, `git`, and `herdr`. The installer links:
-
-- `configs/AGENTS.md` to `${CODEX_HOME:-$HOME/.codex}/AGENTS.md`;
-- the portable `dbz-spec` and `dbz-issues` skills directly into the Codex skills directory;
-- the shared `dbz-crew` CLI into `~/.local/bin`.
-
-It also registers the `dbz-ai-tools` marketplace and installs the
-`dbz-crew@dbz-ai-tools` adapter plugin. DBZ Crew workers inherit the principal
-agent kind; Pi workers additionally inherit provider, model, and thinking level.
-
-DBZ Crew uses strict clean-`main` checks for implementation workers. Explicitly
-read-only workers may inspect dirty or non-main source worktrees through an
-isolated snapshot, with an opt-in live-worktree mode. See
-[`tools/dbz-crew/README.md`](tools/dbz-crew/README.md) for the command matrix and
-safety behavior.
+DBZ Crew delegates explicitly requested tasks from Pi to Pi workers. Workers
+inherit the principal's provider, model, and thinking level. Strict clean-`main`
+checks protect implementation workers. Explicitly read-only workers may inspect
+dirty or non-main source worktrees through an isolated snapshot, with an opt-in
+live-worktree mode. See [`tools/dbz-crew/README.md`](tools/dbz-crew/README.md) for
+the command matrix and safety behavior.
 
 ## Local issue management
 
