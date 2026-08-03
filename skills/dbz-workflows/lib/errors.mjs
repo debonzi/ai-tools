@@ -26,6 +26,14 @@ export const ERROR_CODES = Object.freeze({
 	WORKFLOW_CONFLICT: "workflow_conflict",
 	INVALID_WORKFLOW_STATE: "invalid_workflow_state",
 	INVALID_WORKFLOW_TRANSITION: "invalid_workflow_transition",
+	SPEC_NOT_FOUND: "spec_not_found",
+	INVALID_SPEC_STATE: "invalid_spec_state",
+	DECISION_NOT_FOUND: "decision_not_found",
+	INVALID_DECISION_STATE: "invalid_decision_state",
+	BASELINE_NOT_FOUND: "baseline_not_found",
+	INVALID_BASELINE_STATE: "invalid_baseline_state",
+	BASELINE_IMMUTABILITY_VIOLATION: "baseline_immutability_violation",
+	INVALID_SYNTHESIS_INPUTS: "invalid_synthesis_inputs",
 });
 
 function normalizeDetails(details) {
@@ -155,6 +163,24 @@ export class MigrationError extends DbzWorkflowsError {
 export class WorkflowError extends ValidationError {
 	constructor(message, options = {}) {
 		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_WORKFLOW_STATE });
+	}
+}
+
+export class SpecError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_SPEC_STATE });
+	}
+}
+
+export class DecisionError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_DECISION_STATE });
+	}
+}
+
+export class BaselineError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_BASELINE_STATE });
 	}
 }
 

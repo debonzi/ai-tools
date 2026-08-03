@@ -41,6 +41,7 @@ import {
 	requirePlanAuthorization,
 	validateReviewedPlan,
 } from "./plans.mjs";
+import { validateSpecMetadata } from "./schemas/spec.mjs";
 import {
 	ISSUE_RELATIONS,
 	WORKFLOW_CONDITIONS,
@@ -675,12 +676,10 @@ async function inspectAdoptableWorkflow(paths, identity, reservation) {
 		});
 	}
 	const spec = parseFrontmatter(specSnapshot.data, { path: paths.spec });
-	if (spec.data.artifact !== "spec" || spec.data.workflow_id !== reservation.workflow.id) {
-		throw new WorkflowError("Existing spec.md does not belong to the reserved workflow.", {
-			code: ERROR_CODES.WORKFLOW_CONFLICT,
-			details: { workflow_id: reservation.workflow.id, path: paths.spec },
-		});
-	}
+	validateSpecMetadata(spec.data, {
+		path: paths.spec,
+		expectedWorkflowId: reservation.workflow.id,
+	});
 	indexLevelTwoSections(specSnapshot.data, { path: paths.spec });
 	for (const directory of [paths.baselines, paths.decisions, paths.tickets]) {
 		const state = await entryState(directory);
@@ -1185,6 +1184,12 @@ export async function transitionWorkflowPhase(identity, workflowId, toPhase, opt
 		});
 	}
 	return mutateWorkflow(identity, workflowId, options, (metadata, timestamp) => {
+		if (metadata.phase === "discovery" && toPhase === "planning") {
+			throw new WorkflowError(
+				"Discovery can advance to planning only through an explicitly authorized baseline approval operation.",
+				{ code: ERROR_CODES.INVALID_WORKFLOW_TRANSITION },
+			);
+		}
 		let transition;
 		try {
 			transition = assertWorkflowPhaseTransition(metadata.phase, toPhase);

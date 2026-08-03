@@ -239,6 +239,46 @@ function assertReplacementDoesNotDefineManagedSections(replacement) {
 	}
 }
 
+export function appendLevelTwoSection(
+	source,
+	heading,
+	content,
+	{
+		maxBytes = DEFAULT_SECTION_MAX_BYTES,
+		maxLines = DEFAULT_SECTION_MAX_LINES,
+		path,
+		validateStructure = true,
+	} = {},
+) {
+	if (
+		typeof heading !== "string" ||
+		heading.trim().length === 0 ||
+		heading.includes("\0") ||
+		/[\r\n]/u.test(heading)
+	) {
+		throw new MarkdownError("A section heading must be a non-empty single-line string.");
+	}
+	if (typeof content !== "string" || content.includes("\0")) {
+		throw new MarkdownError("Section content must be a string without NUL bytes.");
+	}
+	const normalizedHeading = heading.trim();
+	enforceBounds(content, { maxBytes, maxLines }, normalizedHeading);
+	assertReplacementDoesNotDefineManagedSections(content);
+	const sections = indexLevelTwoSections(source, { path, validateStructure });
+	if (sections.some(({ title }) => normalizeHeading(title) === normalizeHeading(normalizedHeading))) {
+		throw new MarkdownError(`Managed section '${normalizedHeading}' already exists.`, {
+			details: { ...(path === undefined ? {} : { path }), heading: normalizedHeading },
+		});
+	}
+	const parsed = parseFrontmatter(source, { path });
+	const separator = source.endsWith(parsed.newline) ? "" : parsed.newline;
+	let addition = `## ${normalizedHeading}${parsed.newline}${parsed.newline}${content}`;
+	if (!addition.endsWith(parsed.newline)) addition += parsed.newline;
+	const replacement = `${source}${separator}${addition}`;
+	indexLevelTwoSections(replacement, { path, validateStructure });
+	return replacement;
+}
+
 export function replaceLevelTwoSection(
 	source,
 	heading,

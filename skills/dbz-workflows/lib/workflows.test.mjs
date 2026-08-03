@@ -430,11 +430,14 @@ test("phase, condition, cancellation, continuation, and issue-link rules are enf
 			}),
 			(error) => error instanceof WorkflowError && error.code === "invalid_workflow_transition",
 		);
-		workflow = (await transitionWorkflowPhase(context.identity, "WF-0001", "planning", {
-			homeDirectory: context.homeDirectory,
-			expectedDigest: workflow.digest,
-			clock: CLOCK_2,
-		})).workflow;
+		await assert.rejects(
+			transitionWorkflowPhase(context.identity, "WF-0001", "planning", {
+				homeDirectory: context.homeDirectory,
+				expectedDigest: workflow.digest,
+				clock: CLOCK_2,
+			}),
+			(error) => error instanceof WorkflowError && /baseline approval/u.test(error.message),
+		);
 		await assert.rejects(
 			setWorkflowCondition(context.identity, "WF-0001", "awaiting-integration", true, {
 				homeDirectory: context.homeDirectory,

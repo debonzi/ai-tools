@@ -7,6 +7,7 @@ import {
 import { validateWorkflowId, validateImmutableSlug, workflowBranchName } from "../git-operations.mjs";
 import { isRfc3339UtcTimestamp } from "../locators.mjs";
 import { validateObjectId } from "../git-identity.mjs";
+import { isSequentialId, parseSequentialId } from "./identifiers.mjs";
 
 export const WORKFLOW_SCHEMA_VERSION = 1;
 export const WORKFLOW_PHASES = Object.freeze([
@@ -21,7 +22,6 @@ export const WORKFLOW_PHASES = Object.freeze([
 export const WORKFLOW_CONDITIONS = Object.freeze(["blocked", "awaiting-integration"]);
 export const ISSUE_RELATIONS = Object.freeze(["resolves", "partially-addresses", "related"]);
 
-const BASELINE_ID_PATTERN = /^B-(?:\d{4}|[1-9]\d{4,})$/u;
 const ISSUE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u;
 const TRANSITIONS = Object.freeze({
 	discovery: Object.freeze(["planning", "cancelled"]),
@@ -129,13 +129,26 @@ function workflowIssues(metadata, { expectedId, expectedSlug, objectFormat } = {
 			add(["conditions"], "terminal_conditions", "Terminal workflows must not retain active conditions.");
 		}
 	}
-	if (metadata.current_baseline !== null && !BASELINE_ID_PATTERN.test(metadata.current_baseline)) {
+	if (metadata.current_baseline !== null && !isSequentialId(metadata.current_baseline, "B")) {
 		add(["current_baseline"], "invalid_baseline_id", "Workflow current_baseline must be null or a baseline ID.");
 	}
 	for (const field of ["next_baseline_number", "next_ticket_number", "next_decision_number"]) {
 		if (!Number.isSafeInteger(metadata[field]) || metadata[field] < 1) {
 			add([field], "invalid_counter", `Workflow ${field} must be a positive safe integer.`);
 		}
+	}
+	if (isSequentialId(metadata.current_baseline, "B") && Number.isSafeInteger(metadata.next_baseline_number)) {
+		const currentNumber = parseSequentialId(metadata.current_baseline, { prefix: "B" }).number;
+		if (metadata.next_baseline_number <= currentNumber) {
+			add(
+				["next_baseline_number"],
+				"counter_not_advanced",
+				"Workflow next_baseline_number must be greater than current_baseline.",
+			);
+		}
+	}
+	if (["planning", "ready", "execution", "verification", "completed"].includes(metadata.phase) && metadata.current_baseline === null) {
+		add(["current_baseline"], "missing_current_baseline", `Workflow phase '${metadata.phase}' requires an approved baseline.`);
 	}
 	if (!Array.isArray(metadata.issues)) {
 		add(["issues"], "invalid_issue_links", "Workflow issues must be an array.");

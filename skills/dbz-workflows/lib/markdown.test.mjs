@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { MarkdownError } from "./errors.mjs";
 import {
+	appendLevelTwoSection,
 	indexLevelTwoSections,
 	listLevelTwoSections,
 	readLevelTwoSection,
@@ -87,6 +88,15 @@ test("rejects malformed managed heading structure", () => {
 		const source = `---\nartifact: ticket\n---\n${body}`;
 		assert.throws(() => indexLevelTwoSections(source), MarkdownError);
 	}
+});
+
+test("appends one managed section without changing existing sections", async () => {
+	const source = await fixture("valid", "artifact.md");
+	const result = appendLevelTwoSection(source, "Validation", "Run the focused tests.");
+	assert.equal(readLevelTwoSection(result, "Context"), readLevelTwoSection(source, "Context"));
+	assert.equal(readLevelTwoSection(result, "Result"), readLevelTwoSection(source, "Result"));
+	assert.equal(readLevelTwoSection(result, "Validation"), "## Validation\n\nRun the focused tests.\n");
+	assert.throws(() => appendLevelTwoSection(result, "validation", "duplicate"), MarkdownError);
 });
 
 test("replaces one section while preserving frontmatter and unrelated sections exactly", async () => {
