@@ -10,6 +10,13 @@ export const ERROR_CODES = Object.freeze({
 	LOCK_TIMEOUT: "lock_timeout",
 	LOCK_UNAVAILABLE: "lock_unavailable",
 	ATOMIC_WRITE_FAILED: "atomic_write_failed",
+	GIT_COMMAND_FAILED: "git_command_failed",
+	UNSUPPORTED_GIT_REPOSITORY: "unsupported_git_repository",
+	INVALID_LOCATOR: "invalid_locator",
+	BROKEN_LOCATOR: "broken_locator",
+	INVALID_STORAGE_ROOT: "invalid_storage_root",
+	STORAGE_SETUP_REQUIRED: "storage_setup_required",
+	STORAGE_AMBIGUOUS: "storage_ambiguous",
 });
 
 function normalizeDetails(details) {
@@ -79,6 +86,30 @@ export class LockError extends DbzWorkflowsError {
 export class AtomicWriteError extends DbzWorkflowsError {
 	constructor(message, options = {}) {
 		super(message, { ...options, code: ERROR_CODES.ATOMIC_WRITE_FAILED });
+	}
+}
+
+export class GitCommandError extends DbzWorkflowsError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.GIT_COMMAND_FAILED });
+	}
+}
+
+export class GitIdentityError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.UNSUPPORTED_GIT_REPOSITORY });
+	}
+}
+
+export class LocatorError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_LOCATOR });
+	}
+}
+
+export class StorageResolutionError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_STORAGE_ROOT });
 	}
 }
 
