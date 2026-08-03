@@ -63,7 +63,8 @@ run_installer() {
     local home="$2"
     local fake_bin="$3"
     shift 3
-    HOME="$home" PI_CODING_AGENT_DIR="$home/.pi/agent" PATH="$fake_bin:/usr/bin:/bin" \
+    HOME="$home" XDG_CONFIG_HOME="$home/.config" \
+        PI_CODING_AGENT_DIR="$home/.pi/agent" PATH="$fake_bin:/usr/bin:/bin" \
         "$fixture/install.sh" "$@"
 }
 
