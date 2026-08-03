@@ -18,7 +18,6 @@ import {
 	resolve,
 } from "node:path";
 import {
-	ConfirmationRequiredError,
 	ERROR_CODES,
 	PlanMismatchError,
 	SetupError,
@@ -47,6 +46,19 @@ import {
 	STORAGE_MODES,
 	validateStorageIdentity,
 } from "./storage.mjs";
+import {
+	calculatePlanDigest,
+	finalizePlan,
+	requirePlanAuthorization,
+	validateReviewedPlan,
+} from "./plans.mjs";
+
+export {
+	calculatePlanDigest,
+	finalizePlan,
+	requirePlanAuthorization,
+	validateReviewedPlan,
+} from "./plans.mjs";
 
 export const SETUP_PLAN_VERSION = 1;
 export const ROOT_MANIFEST_BODY = [
@@ -61,12 +73,6 @@ function setupProblem(message, details, cause) {
 		details,
 		...(cause === undefined ? {} : { cause }),
 	});
-}
-
-function assertPlainObject(value, name) {
-	if (value === null || typeof value !== "object" || Array.isArray(value)) {
-		throw new ValidationError(`${name} must be an object.`);
-	}
 }
 
 function normalizedTimestamp(value, name = "timestamp") {
@@ -295,56 +301,6 @@ export async function inspectLocatorState(path, projectKey) {
 		throw setupProblem("The external locator is invalid and requires explicit reconfiguration.", {
 			locator_path: path,
 		}, error);
-	}
-}
-
-function canonicalize(value) {
-	if (Array.isArray(value)) return value.map(canonicalize);
-	if (value !== null && typeof value === "object") {
-		return Object.fromEntries(
-			Object.keys(value)
-				.sort()
-				.map((key) => [key, canonicalize(value[key])]),
-		);
-	}
-	return value;
-}
-
-export function calculatePlanDigest(plan) {
-	assertPlainObject(plan, "plan");
-	const unsigned = { ...plan };
-	delete unsigned.plan_digest;
-	return sha256Hex(`${JSON.stringify(canonicalize(unsigned))}\n`);
-}
-
-export function finalizePlan(plan) {
-	return { ...plan, plan_digest: calculatePlanDigest(plan) };
-}
-
-export function validateReviewedPlan(plan, operation) {
-	assertPlainObject(plan, "plan");
-	if (plan.plan_version !== SETUP_PLAN_VERSION || plan.operation !== operation) {
-		throw new PlanMismatchError(`Expected a version ${SETUP_PLAN_VERSION} '${operation}' plan.`);
-	}
-	const actualDigest = calculatePlanDigest(plan);
-	if (typeof plan.plan_digest !== "string" || plan.plan_digest !== actualDigest) {
-		throw new PlanMismatchError("The plan content does not match its recorded digest.", {
-			details: { recorded_digest: plan.plan_digest, actual_digest: actualDigest },
-		});
-	}
-	return plan;
-}
-
-export function requirePlanAuthorization(plan, authorization) {
-	if (
-		authorization?.confirmed !== true ||
-		typeof authorization?.planDigest !== "string" ||
-		authorization.planDigest !== plan.plan_digest
-	) {
-		throw new ConfirmationRequiredError(
-			"Apply requires explicit authorization tied to the exact reviewed plan digest.",
-			{ details: { plan_digest: plan.plan_digest } },
-		);
 	}
 }
 

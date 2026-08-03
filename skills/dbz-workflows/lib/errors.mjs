@@ -11,6 +11,7 @@ export const ERROR_CODES = Object.freeze({
 	LOCK_UNAVAILABLE: "lock_unavailable",
 	ATOMIC_WRITE_FAILED: "atomic_write_failed",
 	GIT_COMMAND_FAILED: "git_command_failed",
+	GIT_STATE_INVALID: "git_state_invalid",
 	UNSUPPORTED_GIT_REPOSITORY: "unsupported_git_repository",
 	INVALID_LOCATOR: "invalid_locator",
 	BROKEN_LOCATOR: "broken_locator",
@@ -102,6 +103,12 @@ export class GitCommandError extends DbzWorkflowsError {
 export class GitIdentityError extends ValidationError {
 	constructor(message, options = {}) {
 		super(message, { ...options, code: ERROR_CODES.UNSUPPORTED_GIT_REPOSITORY });
+	}
+}
+
+export class GitStateError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.GIT_STATE_INVALID });
 	}
 }
 
