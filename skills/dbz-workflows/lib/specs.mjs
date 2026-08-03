@@ -188,7 +188,21 @@ export async function updateSpecDraftSections(identity, workflowId, updates, opt
 
 export async function setSpecOpenBlockers(identity, workflowId, blockers, options = {}) {
 	const normalized = normalizedBlockers(blockers);
-	return mutateSpec(identity, workflowId, options, (source, spec, _context, timestamp) => {
+	return mutateSpec(identity, workflowId, options, async (source, spec, context, timestamp) => {
+		if (normalized.length > 0) {
+			const { listTicketsInContext } = await import("./tickets.mjs");
+			const tickets = await listTicketsInContext(context);
+			const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+			for (const blockerId of normalized) {
+				const blocker = byId.get(blockerId);
+				if (blocker === undefined) {
+					throw new SpecError(`Spec blocker '${blockerId}' is not a canonical workflow ticket.`);
+				}
+				if (["completed", "cancelled", "superseded"].includes(blocker.status)) {
+					throw new SpecError(`Spec blocker '${blockerId}' is terminal and cannot remain open.`);
+				}
+			}
+		}
 		if (JSON.stringify(spec.metadata.open_blockers) === JSON.stringify(normalized)) return source;
 		return patchFrontmatter(
 			source,
@@ -303,6 +317,30 @@ function validateSynthesisDecisions(workflowId, decisions) {
 	return byId;
 }
 
+async function validateCanonicalSynthesisInputs(context, validation, requiredInputIds) {
+	const { listTicketsInContext } = await import("./tickets.mjs");
+	const tickets = await listTicketsInContext(context);
+	const byId = new Map(tickets.map((ticket) => [ticket.id, ticket.metadata]));
+	const synthesis = byId.get(validation.synthesis_ticket);
+	if (synthesis === undefined) {
+		throw synthesisProblem(`Synthesis ticket '${validation.synthesis_ticket}' is not a canonical workflow ticket.`);
+	}
+	const inputs = validation.input_ids.map((id) => {
+		const input = byId.get(id);
+		if (input === undefined) throw synthesisProblem(`Synthesis input '${id}' is not a canonical workflow ticket.`);
+		return input;
+	});
+	return {
+		validation: validateSynthesisInputs({
+			workflowId: context.workflow.id,
+			synthesis,
+			inputs,
+			requiredInputIds,
+		}),
+		tickets,
+	};
+}
+
 export async function applySynthesisUpdate(
 	identity,
 	workflowId,
@@ -322,6 +360,24 @@ export async function applySynthesisUpdate(
 	if (updates.length === 0) throw synthesisProblem("Synthesis must update at least one selected spec section.");
 	const blockers = normalizedBlockers(openBlockers);
 	const result = await mutateSpec(identity, workflowId, options, async (source, spec, context, timestamp) => {
+		const canonical = await validateCanonicalSynthesisInputs(
+			context,
+			validation,
+			requiredInputIds,
+		);
+		if (JSON.stringify(canonical.validation) !== JSON.stringify(validation)) {
+			throw synthesisProblem("Canonical synthesis dependencies changed before the spec update.");
+		}
+		const canonicalTickets = new Map(canonical.tickets.map((ticket) => [ticket.id, ticket]));
+		for (const blockerId of blockers) {
+			const blocker = canonicalTickets.get(blockerId);
+			if (blocker === undefined) {
+				throw synthesisProblem(`Synthesis blocker '${blockerId}' is not a canonical workflow ticket.`);
+			}
+			if (["completed", "cancelled", "superseded"].includes(blocker.status)) {
+				throw synthesisProblem(`Synthesis blocker '${blockerId}' is terminal and cannot remain open.`);
+			}
+		}
 		for (const [decisionId, expectedDigest] of decisionDigests) {
 			const decision = await inspectDecision(context.identity, workflowId, decisionId, {
 				homeDirectory: context.homeDirectory,

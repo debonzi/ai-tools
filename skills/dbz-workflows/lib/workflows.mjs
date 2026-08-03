@@ -202,11 +202,15 @@ export function formatWorkflowId(number) {
 	return `WF-${String(number).padStart(4, "0")}`;
 }
 
-export function generateImmutableSlug(title, { maxLength = DEFAULT_MAX_SLUG_LENGTH } = {}) {
+export function generateImmutableSlug(
+	title,
+	{ maxLength = DEFAULT_MAX_SLUG_LENGTH, fallback = "workflow" } = {},
+) {
 	const normalizedTitle = normalizeTitle(title);
 	if (!Number.isSafeInteger(maxLength) || maxLength < 1) {
 		throw new ValidationError("maxLength must be a positive safe integer.");
 	}
+	validateImmutableSlug(fallback);
 	let slug = normalizedTitle
 		.normalize("NFKD")
 		.replace(/\p{Mark}+/gu, "")
@@ -214,10 +218,10 @@ export function generateImmutableSlug(title, { maxLength = DEFAULT_MAX_SLUG_LENG
 		.replace(/[^a-z0-9]+/gu, "-")
 		.replace(/^-+|-+$/gu, "")
 		.replace(/-+/gu, "-");
-	if (slug.length === 0) slug = "workflow";
+	if (slug.length === 0) slug = fallback;
 	if (slug.length > maxLength) {
 		slug = slug.slice(0, maxLength).replace(/-+$/gu, "");
-		if (slug.length === 0) slug = "workflow".slice(0, maxLength);
+		if (slug.length === 0) slug = fallback.slice(0, maxLength);
 	}
 	validateImmutableSlug(slug);
 	return slug;

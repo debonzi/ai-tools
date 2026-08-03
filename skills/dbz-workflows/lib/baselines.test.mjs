@@ -37,6 +37,11 @@ import { patchFrontmatter } from "./frontmatter.mjs";
 import { inspectGitProject } from "./git-identity.mjs";
 import { readLevelTwoSection } from "./markdown.mjs";
 import { applySetupPlan, createSetupPlan } from "./setup.mjs";
+import { requiredTicketSections } from "./schemas/ticket.mjs";
+import {
+	createTicket,
+	transitionTicketStatus,
+} from "./tickets.mjs";
 import {
 	applySynthesisUpdate,
 	inspectSpec,
@@ -131,6 +136,13 @@ function discoveryTicket(id, type, overrides = {}) {
 	};
 }
 
+function ticketSections(type, result) {
+	return Object.fromEntries(requiredTicketSections(type).map((heading) => [
+		heading,
+		heading === "Result" ? result : `${heading} contract content.`,
+	]));
+}
+
 const DECISION_INPUT = Object.freeze({
 	title: "Use authorization code with PKCE",
 	context: "Browser clients need an OAuth flow that does not expose a client secret.",
@@ -192,6 +204,70 @@ test("synthesis validates every completed dependency before exclusively updating
 			},
 		);
 		workflow = recordedDecision.workflow;
+		const allocate = async (input) => {
+			const created = await createTicket(context.identity, context.workflowId, input, {
+				homeDirectory: context.homeDirectory,
+				expectedWorkflowDigest: workflow.digest,
+				clock: CLOCK_1,
+			});
+			workflow = created.workflow;
+			return created.ticket;
+		};
+		const complete = async (ticket) => {
+			let current = (await transitionTicketStatus(
+				context.identity,
+				context.workflowId,
+				ticket.id,
+				"in-progress",
+				{
+					homeDirectory: context.homeDirectory,
+					expectedTicketDigest: ticket.digest,
+					clock: CLOCK_1,
+				},
+			)).ticket;
+			current = (await transitionTicketStatus(
+				context.identity,
+				context.workflowId,
+				current.id,
+				"completed",
+				{
+					homeDirectory: context.homeDirectory,
+					expectedTicketDigest: current.digest,
+					clock: CLOCK_1,
+				},
+			)).ticket;
+			return current;
+		};
+		const canonicalResearch = await complete(await allocate({
+			title: "Research OAuth compatibility",
+			type: "research",
+			status: "open",
+			sections: ticketSections("research", "Compatibility evidence is complete."),
+		}));
+		const canonicalQuestions = await complete(await allocate({
+			title: "Confirm OAuth ownership",
+			type: "question-session",
+			status: "open",
+			sections: ticketSections("question-session", "The decision owner answered all required questions."),
+		}));
+		let canonicalSynthesis = await allocate({
+			title: "Synthesize OAuth discovery",
+			type: "synthesis",
+			status: "open",
+			dependsOn: [canonicalResearch.id, canonicalQuestions.id],
+			sections: ticketSections("synthesis", "The discovery inputs were incorporated into the spec."),
+		});
+		canonicalSynthesis = (await transitionTicketStatus(
+			context.identity,
+			context.workflowId,
+			canonicalSynthesis.id,
+			"in-progress",
+			{
+				homeDirectory: context.homeDirectory,
+				expectedTicketDigest: canonicalSynthesis.digest,
+				clock: CLOCK_1,
+			},
+		)).ticket;
 		const spec = await inspectSpec(context.identity, context.workflowId, {
 			homeDirectory: context.homeDirectory,
 		});
@@ -200,8 +276,8 @@ test("synthesis validates every completed dependency before exclusively updating
 			context.identity,
 			context.workflowId,
 			{
-				synthesis,
-				inputs: [research, questions],
+				synthesis: canonicalSynthesis.metadata,
+				inputs: [canonicalResearch.metadata, canonicalQuestions.metadata],
 				requiredInputIds: ["T-0001", "T-0002"],
 				decisions: [recordedDecision.decision],
 				sectionUpdates: [
@@ -230,6 +306,17 @@ test("synthesis validates every completed dependency before exclusively updating
 			}),
 			(error) => error instanceof BaselineError && /latest synthesis ticket/u.test(error.message),
 		);
+		canonicalSynthesis = (await transitionTicketStatus(
+			context.identity,
+			context.workflowId,
+			canonicalSynthesis.id,
+			"completed",
+			{
+				homeDirectory: context.homeDirectory,
+				expectedTicketDigest: canonicalSynthesis.digest,
+				clock: CLOCK_2,
+			},
+		)).ticket;
 		const plan = await createBaselineApprovalPlan(context.identity, context.workflowId, {
 			homeDirectory: context.homeDirectory,
 			expectedWorkflowDigest: workflow.digest,
@@ -338,6 +425,16 @@ test("baseline approval rejects blockers and requires authorization tied to the 
 		let spec = await inspectSpec(context.identity, context.workflowId, {
 			homeDirectory: context.homeDirectory,
 		});
+		const blocker = await createTicket(context.identity, context.workflowId, {
+			title: "Resolve baseline blocker",
+			type: "research",
+			status: "draft",
+		}, {
+			homeDirectory: context.homeDirectory,
+			expectedWorkflowDigest: workflow.digest,
+			clock: CLOCK_1,
+		});
+		workflow = blocker.workflow;
 		spec = (await setSpecOpenBlockers(context.identity, context.workflowId, ["T-0001"], {
 			homeDirectory: context.homeDirectory,
 			expectedWorkflowDigest: workflow.digest,
@@ -358,6 +455,12 @@ test("baseline approval rejects blockers and requires authorization tied to the 
 			expectedSpecDigest: spec.digest,
 			clock: CLOCK_2,
 		})).spec;
+		await transitionTicketStatus(context.identity, context.workflowId, blocker.ticket.id, "cancelled", {
+			homeDirectory: context.homeDirectory,
+			expectedTicketDigest: blocker.ticket.digest,
+			rationale: "The investigation is no longer required for this baseline.",
+			clock: CLOCK_2,
+		});
 		const plan = await createBaselineApprovalPlan(context.identity, context.workflowId, {
 			homeDirectory: context.homeDirectory,
 			expectedWorkflowDigest: workflow.digest,

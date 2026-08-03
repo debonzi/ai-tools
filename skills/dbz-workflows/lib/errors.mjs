@@ -34,6 +34,11 @@ export const ERROR_CODES = Object.freeze({
 	INVALID_BASELINE_STATE: "invalid_baseline_state",
 	BASELINE_IMMUTABILITY_VIOLATION: "baseline_immutability_violation",
 	INVALID_SYNTHESIS_INPUTS: "invalid_synthesis_inputs",
+	TICKET_NOT_FOUND: "ticket_not_found",
+	INVALID_TICKET_STATE: "invalid_ticket_state",
+	INVALID_TICKET_TRANSITION: "invalid_ticket_transition",
+	INVALID_TICKET_DAG: "invalid_ticket_dag",
+	CONTEXT_BUDGET_EXCEEDED: "context_budget_exceeded",
 });
 
 function normalizeDetails(details) {
@@ -181,6 +186,24 @@ export class DecisionError extends ValidationError {
 export class BaselineError extends ValidationError {
 	constructor(message, options = {}) {
 		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_BASELINE_STATE });
+	}
+}
+
+export class TicketError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_TICKET_STATE });
+	}
+}
+
+export class DagError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.INVALID_TICKET_DAG });
+	}
+}
+
+export class ContextBudgetError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.CONTEXT_BUDGET_EXCEEDED });
 	}
 }
 

@@ -51,6 +51,11 @@ import {
 } from "./schemas/workflow.mjs";
 import { createBaselineArtifactSource } from "./templates/baseline.mjs";
 import { parseSpecArtifact } from "./specs.mjs";
+import {
+	listTicketsInContext,
+	unresolvedBaselineBlockingTickets,
+} from "./tickets.mjs";
+import { validateTicketDag } from "./dag.mjs";
 
 export const BASELINE_PLAN_OPERATIONS = Object.freeze({ APPROVAL: "baseline_approval" });
 const BASELINE_FILE_PATTERN = /^(B-\d{4,})\.md$/u;
@@ -240,6 +245,60 @@ export function deriveBaselineStalenessData(specMetadata, artifacts = []) {
 	};
 }
 
+async function assertCanonicalDiscoveryTicketGate(context, spec) {
+	const tickets = await listTicketsInContext(context);
+	validateTicketDag(tickets, { workflowId: context.workflow.id });
+	const unresolvedResearch = unresolvedBaselineBlockingTickets(tickets);
+	if (unresolvedResearch.length > 0) {
+		throw new BaselineError("A baseline cannot be approved while baseline-blocking research remains unresolved.", {
+			details: { ticket_ids: unresolvedResearch },
+		});
+	}
+	const recordedSynthesisId = spec.parsed.data.last_synthesis_ticket ?? null;
+	if (recordedSynthesisId !== null) {
+		const recordedSynthesis = tickets.find(({ id }) => id === recordedSynthesisId);
+		if (
+			recordedSynthesis === undefined ||
+			recordedSynthesis.type !== "synthesis" ||
+			recordedSynthesis.status !== "completed"
+		) {
+			throw new BaselineError("The spec's latest synthesis ticket must be a completed canonical synthesis ticket.", {
+				details: { source_synthesis_ticket: recordedSynthesisId },
+			});
+		}
+	}
+	const activeDiscoveryInputs = tickets.filter((ticket) => (
+		(
+			(ticket.type === "research" && ticket.research_class === "baseline-blocking") ||
+			["question-session", "design"].includes(ticket.type)
+		) &&
+		!["cancelled", "superseded"].includes(ticket.status)
+	));
+	const incompleteInputs = activeDiscoveryInputs
+		.filter(({ status }) => status !== "completed")
+		.map(({ id }) => id);
+	if (incompleteInputs.length > 0) {
+		throw new BaselineError("A baseline cannot be approved while discovery inputs remain incomplete.", {
+			details: { ticket_ids: incompleteInputs },
+		});
+	}
+	if (activeDiscoveryInputs.length === 0) return;
+	const synthesisId = recordedSynthesisId;
+	const synthesis = tickets.find(({ id }) => id === synthesisId);
+	if (synthesis === undefined || synthesis.type !== "synthesis" || synthesis.status !== "completed") {
+		throw new BaselineError("Discovery tickets require a completed canonical synthesis ticket before baseline approval.", {
+			details: { source_synthesis_ticket: synthesisId },
+		});
+	}
+	const inputIds = new Set(activeDiscoveryInputs.map(({ id }) => id));
+	const missingDependencies = [...inputIds].filter((id) => !synthesis.depends_on.includes(id));
+	if (missingDependencies.length > 0) {
+		throw new BaselineError("The latest synthesis ticket does not depend on every canonical discovery input.", {
+			details: { ticket_ids: missingDependencies, synthesis_ticket: synthesis.id },
+		});
+	}
+}
+
 function assertApprovalState(context, spec, sourceSynthesisTicket) {
 	if (context.workflow.phase !== "discovery") {
 		throw new BaselineError("Baseline approval is allowed only while the workflow is in discovery.", {
@@ -313,6 +372,7 @@ export async function createBaselineApprovalPlan(
 	const spec = await readSpecInContext(context);
 	if (spec.digest !== specDigest) throw new RevisionConflictError("Spec does not match the expected revision.");
 	assertApprovalState(context, spec, sourceSynthesisTicket);
+	await assertCanonicalDiscoveryTicketGate(context, spec);
 	const number = context.workflow.metadata.next_baseline_number;
 	if (number >= Number.MAX_SAFE_INTEGER) throw new BaselineError("Baseline ID counter is exhausted.");
 	const id = formatSequentialId("B", number);
@@ -391,6 +451,7 @@ async function assertApprovalPlanState(plan, context) {
 	const expectedPath = resolveWithinRoot(context.paths.baselines, `${plan.baseline.id}.md`);
 	if (plan.baseline.path !== expectedPath) throw new PlanMismatchError("Baseline approval plan contains an invalid snapshot path.");
 	assertApprovalState(context, spec, plan.baseline.source_synthesis_ticket);
+	await assertCanonicalDiscoveryTicketGate(context, spec);
 	await assertBaselinePathAbsent(expectedPath);
 	return spec;
 }
