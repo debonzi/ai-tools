@@ -22,6 +22,10 @@ export const ERROR_CODES = Object.freeze({
 	PLAN_MISMATCH: "plan_mismatch",
 	CONFIRMATION_REQUIRED: "confirmation_required",
 	MIGRATION_FAILED: "migration_failed",
+	WORKFLOW_NOT_FOUND: "workflow_not_found",
+	WORKFLOW_CONFLICT: "workflow_conflict",
+	INVALID_WORKFLOW_STATE: "invalid_workflow_state",
+	INVALID_WORKFLOW_TRANSITION: "invalid_workflow_transition",
 });
 
 function normalizeDetails(details) {
@@ -145,6 +149,12 @@ export class ConfirmationRequiredError extends ValidationError {
 export class MigrationError extends DbzWorkflowsError {
 	constructor(message, options = {}) {
 		super(message, { ...options, code: ERROR_CODES.MIGRATION_FAILED });
+	}
+}
+
+export class WorkflowError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_WORKFLOW_STATE });
 	}
 }
 
