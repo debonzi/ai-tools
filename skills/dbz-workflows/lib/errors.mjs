@@ -17,6 +17,10 @@ export const ERROR_CODES = Object.freeze({
 	INVALID_STORAGE_ROOT: "invalid_storage_root",
 	STORAGE_SETUP_REQUIRED: "storage_setup_required",
 	STORAGE_AMBIGUOUS: "storage_ambiguous",
+	SETUP_CONFLICT: "setup_conflict",
+	PLAN_MISMATCH: "plan_mismatch",
+	CONFIRMATION_REQUIRED: "confirmation_required",
+	MIGRATION_FAILED: "migration_failed",
 });
 
 function normalizeDetails(details) {
@@ -110,6 +114,30 @@ export class LocatorError extends ValidationError {
 export class StorageResolutionError extends ValidationError {
 	constructor(message, options = {}) {
 		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_STORAGE_ROOT });
+	}
+}
+
+export class SetupError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.SETUP_CONFLICT });
+	}
+}
+
+export class PlanMismatchError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.PLAN_MISMATCH });
+	}
+}
+
+export class ConfirmationRequiredError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.CONFIRMATION_REQUIRED });
+	}
+}
+
+export class MigrationError extends DbzWorkflowsError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.MIGRATION_FAILED });
 	}
 }
 

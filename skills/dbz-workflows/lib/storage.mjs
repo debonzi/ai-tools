@@ -38,7 +38,7 @@ function validatedProjectKey(projectKey) {
 	return projectKey;
 }
 
-function validateIdentity(identity) {
+export function validateStorageIdentity(identity) {
 	if (identity === null || typeof identity !== "object" || Array.isArray(identity)) {
 		throw new ValidationError("Git project identity must be an object.");
 	}
@@ -74,7 +74,7 @@ export function externalLocatorPath(projectKey, { homeDirectory = homedir() } = 
 }
 
 export function storageCandidatePaths(identity, { homeDirectory = homedir() } = {}) {
-	const normalized = validateIdentity(identity);
+	const normalized = validateStorageIdentity(identity);
 	return {
 		project: projectStoragePath(normalized.projectRoot),
 		managed: managedStoragePath(normalized.projectKey, { homeDirectory }),
@@ -188,7 +188,7 @@ function rootManifestIssues(metadata, expectedIdentity) {
 }
 
 export function parseRootManifest(source, { path, expectedIdentity } = {}) {
-	const normalizedIdentity = expectedIdentity === undefined ? undefined : validateIdentity(expectedIdentity);
+	const normalizedIdentity = expectedIdentity === undefined ? undefined : validateStorageIdentity(expectedIdentity);
 	const parsed = parseFrontmatter(source, { path });
 	throwIfValidationIssues(rootManifestIssues(parsed.data, normalizedIdentity), {
 		artifact: ROOT_MANIFEST_NAME,
@@ -334,7 +334,7 @@ function brokenLocator(locatorPath, message, cause, details = {}) {
 }
 
 export async function inspectStorageCandidates(identity, { homeDirectory = homedir() } = {}) {
-	const normalizedIdentity = validateIdentity(identity);
+	const normalizedIdentity = validateStorageIdentity(identity);
 	const paths = storageCandidatePaths(normalizedIdentity, { homeDirectory });
 	const candidates = [];
 	candidates.push(
