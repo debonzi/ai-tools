@@ -9,38 +9,44 @@ DBZ Crew delegates explicitly requested independent tasks from Pi to Pi workers 
 - Git
 - Python 3
 
-Initially verified with Pi 0.83.0 and Herdr 0.7.5. The installer and preflight validate required capabilities at runtime instead of relying only on version numbers.
+Initially verified with Pi 0.83.0 and Herdr 0.7.5. Package setup and preflight validate required capabilities at runtime instead of relying only on version numbers.
 
 ## Installation
 
-Run the installer for the principal agent:
+Install the DBZ AI Tools Pi package and run its explicit setup skill:
 
 ```bash
-./install.sh pi
+pi install git:github.com/debonzi/dbz-ai-tools
 ```
 
-The Pi installer also configures Herdr's official Pi integration. Reload or restart an already running Pi session after installation.
+```text
+/skill:dbz-ai-tools-setup
+```
+
+When DBZ Crew is selected, setup validates its prerequisites and can run `herdr integration install pi` after explicit confirmation. Reload or restart an already running Pi session after setup.
 
 ## Commands
 
+Resolve `<dbz-crew>` to `python3 <dbz-crew-skill-directory>/scripts/dbz-crew`:
+
 ```bash
 # Implementation workers: strict clean-main preflight
-dbz-crew preflight
-dbz-crew dispatch --task-id <id> --prompt '<bounded task>'
-dbz-crew dispatch --task-id <id> --prompt '<bounded task>' --parallel
+<dbz-crew> preflight
+<dbz-crew> dispatch --task-id <id> --prompt '<bounded task>'
+<dbz-crew> dispatch --task-id <id> --prompt '<bounded task>' --parallel
 
 # Read-only workers: dirty and non-main source worktrees are allowed
-dbz-crew preflight --read-only
-dbz-crew dispatch --read-only --task-id <id> --prompt '<bounded task>'
-dbz-crew preflight --read-only --committed-only [--base <ref>]
-dbz-crew dispatch --read-only --committed-only [--base <ref>] --task-id <id> --prompt '<bounded task>'
-dbz-crew preflight --read-only --in-place
-dbz-crew dispatch --read-only --in-place --task-id <id> --prompt '<bounded task>'
+<dbz-crew> preflight --read-only
+<dbz-crew> dispatch --read-only --task-id <id> --prompt '<bounded task>'
+<dbz-crew> preflight --read-only --committed-only [--base <ref>]
+<dbz-crew> dispatch --read-only --committed-only [--base <ref>] --task-id <id> --prompt '<bounded task>'
+<dbz-crew> preflight --read-only --in-place
+<dbz-crew> dispatch --read-only --in-place --task-id <id> --prompt '<bounded task>'
 
-dbz-crew status
-dbz-crew rebase --task-id <id>
-dbz-crew integrate --branch <worker-branch>
-dbz-crew cleanup --task-id <id> --branch <worker-branch>
+<dbz-crew> status
+<dbz-crew> rebase --task-id <id>
+<dbz-crew> integrate --branch <worker-branch>
+<dbz-crew> cleanup --task-id <id> --branch <worker-branch>
 ```
 
 Pi runtime metadata is normally inherited from `PI_PROVIDER`, `PI_MODEL`, and `PI_REASONING_LEVEL`. Troubleshooting or explicitly requested overrides are available through `--worker-provider`, `--worker-model`, and `--worker-thinking`.
@@ -66,9 +72,11 @@ Completion events are delivered only to the original Pi session and use follow-u
 ## Validation
 
 ```bash
-python3 -m unittest discover -s tools/dbz-crew/tests -v
+python3 -m unittest discover -s skills/dbz-crew/tests -v
 TZ=UTC node --test agents/pi/extensions/dbz-crew-events/index.test.ts
 tests/test-install.sh
 ```
 
-The manual Pi checklist is in [`tests/SMOKE_DBZ_CREW.md`](../../tests/SMOKE_DBZ_CREW.md).
+See the package setup tests in `skills/dbz-ai-tools-setup/tests/`.
+
+The manual Pi checklist is in [`tests/SMOKE_DBZ_CREW.md`](../../../tests/SMOKE_DBZ_CREW.md).

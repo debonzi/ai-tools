@@ -240,8 +240,8 @@ function completionMessage(event: CrewCompletionEvent): string {
 	if (event.message) return event.message;
 	return [
 		`DBZ-CREW EVENT: worker ${event.task_id} ${event.phase} is ${event.status}.`,
-		`Read ${event.result}, inspect the worker state with \`dbz-crew status\`, report it to the user,`,
-		"and await an explicit user decision before rebase, merge, or cleanup.",
+		`Read ${event.result}, load the dbz-crew skill, inspect the worker state with its bundled status command,`,
+		"report it to the user, and await an explicit user decision before rebase, merge, or cleanup.",
 	].join(" ");
 }
 

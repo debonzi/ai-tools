@@ -21,7 +21,12 @@ both extensions can remain loaded during comparison.
 
 ## Configuration
 
-Edit `config.json` and run `/reload`:
+The managed package checkout is immutable configuration input and may be reset by `pi update`. Put optional overrides outside it:
+
+- Global: `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/codex-usage.json`
+- Project: `.pi/codex-usage.json`, loaded only after the project is trusted
+
+Project values override global values. Copy `config.example.json` to the desired external path or create the file directly, then run `/reload` after changing it.
 
 ```json
 {
@@ -34,7 +39,7 @@ Edit `config.json` and run `/reload`:
   `/cusage` report always includes them.
 - `refreshIntervalMinutes`: automatic refresh interval from 1 to 1440 minutes.
 
-Invalid values fall back to the defaults and produce a warning.
+Missing files use defaults. Invalid values fall back to defaults and produce a warning.
 
 ## Privacy and authentication
 

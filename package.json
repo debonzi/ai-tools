@@ -1,0 +1,24 @@
+{
+  "name": "dbz-ai-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Skills and extensions for the Pi coding agent.",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "pi": {
+    "skills": [
+      "./skills"
+    ],
+    "extensions": [
+      "./agents/pi/extensions/codex-usage/index.ts",
+      "./agents/pi/extensions/dbz-crew-events/index.ts"
+    ]
+  }
+}

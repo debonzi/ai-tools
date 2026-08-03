@@ -20,6 +20,9 @@
 
 # Runtime and editor artifacts
 .cache/
+node_modules/
+.pi/git/
+.pi/npm/
 __pycache__/
 *.py[cod]
 *.log

@@ -12,6 +12,7 @@ import json
 import os
 import pwd
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -34,6 +35,10 @@ PRIVATE_FILE_MODE = 0o600
 
 class CrewError(RuntimeError):
     """Expected workflow failure that should be shown without a traceback."""
+
+
+def own_command(*args: str) -> str:
+    return shlex.join([sys.executable, str(Path(__file__).resolve()), *args])
 
 
 def command(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -1265,8 +1270,8 @@ def dispatch(args: argparse.Namespace) -> None:
             worker_prompt = (
                 "You are a DBZ-CREW worker. Work only in this assigned worktree. Do not create child agents, "
                 "change main, merge, push, rebase main, or remove worktrees. Keep unrelated files untouched. "
-                "Do not run `dbz-crew preflight`: it validates the principal's main worktree and will correctly "
-                "fail in a worker branch. "
+                "Do not run the DBZ Crew principal preflight: it validates the principal's main worktree and "
+                "will correctly fail in a worker branch. "
                 "If you change repository files, commit the finished work with a Conventional Commit. Finish your "
                 "final response with `DBZ-CREW RESULT:` followed by summary, validation, and blockers.\n\n"
                 + args.prompt
@@ -1359,13 +1364,14 @@ def completion_event_text(
     if read_only:
         return (
             f"DBZ-CREW EVENT: read-only worker {task_id} {phase} is {status}. Read {output_file}, "
-            "inspect the worker state with `dbz-crew status`, and report it to the user. Validated "
-            "read-only resources are cleaned automatically; failed validation resources are retained."
+            "load the dbz-crew skill, inspect the worker state with its bundled status command, and report "
+            "it to the user. Validated read-only resources are cleaned automatically; failed validation "
+            "resources are retained."
         )
     return (
-        f"DBZ-CREW EVENT: worker {task_id} {phase} is {status}. Read {output_file}, inspect "
-        "the worker state with `dbz-crew status`, report it to the user, and await an explicit user "
-        "decision before rebase, merge, or cleanup."
+        f"DBZ-CREW EVENT: worker {task_id} {phase} is {status}. Read {output_file}, load the "
+        "dbz-crew skill, inspect the worker state with its bundled status command, report it to the user, "
+        "and await an explicit user decision before rebase, merge, or cleanup."
     )
 
 
@@ -1656,9 +1662,10 @@ def rebase(args: argparse.Namespace) -> None:
         prompt_file,
         "You are resuming your completed DBZ-CREW implementation worker after an explicit user request. "
         f"Rebase your branch `{branch}` onto the current local `main`. Resolve conflicts, run relevant "
-        "validation, and report the resulting commit. Do not run `dbz-crew preflight`: it validates the "
-        "principal's main worktree and will correctly fail in a worker branch. Do not merge, push, delete "
-        "worktrees, or rebase the main branch itself. Finish with `DBZ-CREW RESULT:` followed by summary, "
+        "validation, and report the resulting commit. Do not run the DBZ Crew principal preflight: it "
+        "validates the principal's main worktree and will correctly fail in a worker branch. Do not merge, "
+        "push, delete worktrees, or rebase the main branch itself. Finish with `DBZ-CREW RESULT:` followed "
+        "by summary, "
         "validation, and blockers.",
     )
     previous_status = set_recorded_worker_status(main_pane, task_id, "rebasing")
@@ -1709,7 +1716,11 @@ def integrate(args: argparse.Namespace) -> None:
             ),
             None,
         )
-        command_hint = f"dbz-crew rebase --task-id {task_id}" if task_id else "an explicit dbz-crew rebase request"
+        command_hint = (
+            own_command("rebase", "--task-id", task_id)
+            if task_id
+            else "an explicit DBZ Crew rebase request"
+        )
         raise CrewError(f"{branch} is not rebased onto the current main; request {command_hint} before merging")
     merged = command(["git", "merge", "--no-ff", "-m", f"chore(crew): merge {branch}", branch], repo_root)
     if merged.returncode != 0:

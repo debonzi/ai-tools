@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "dbz-crew"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "dbz-crew"
 LOADER = importlib.machinery.SourceFileLoader("dbz_crew", str(SCRIPT))
 SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
 assert SPEC is not None

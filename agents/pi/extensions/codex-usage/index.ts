@@ -1,6 +1,8 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { userInfo } from "node:os";
+import { isAbsolute, resolve } from "node:path";
+import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	DEFAULT_CONFIG,
@@ -40,9 +42,8 @@ type PiModel = NonNullable<ExtensionContext["model"]>;
 class UsageAuthError extends Error {}
 class UsageQueryError extends Error {}
 
-export default async function codexUsageExtension(pi: ExtensionAPI) {
-	const loadedConfig = await loadConfig();
-	const config = loadedConfig.config;
+export default function codexUsageExtension(pi: ExtensionAPI) {
+	let config: CodexUsageConfig = { ...DEFAULT_CONFIG };
 	const fingerprintSalt = randomBytes(32);
 	let cache: CacheEntry | undefined;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -189,7 +190,9 @@ export default async function codexUsageExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", async (_event, ctx) => {
+		const loadedConfig = await loadConfig(ctx);
+		config = loadedConfig.config;
 		sessionActive = ctx.mode === "tui";
 		if (!sessionActive) return;
 		for (const warning of loadedConfig.warnings) ctx.ui.notify(warning, "warning");
@@ -212,17 +215,68 @@ export default async function codexUsageExtension(pi: ExtensionAPI) {
 	});
 }
 
-async function loadConfig(): Promise<{ config: CodexUsageConfig; warnings: string[] }> {
+async function loadConfig(
+	ctx: ExtensionContext,
+): Promise<{ config: CodexUsageConfig; warnings: string[] }> {
+	const warnings: string[] = [];
+	const merged: Record<string, unknown> = {};
+	let agentDirectory: string;
 	try {
-		const raw = await readFile(new URL("./config.json", import.meta.url), "utf8");
-		return parseConfig(JSON.parse(raw) as unknown);
+		agentDirectory = resolveAgentDirectory();
 	} catch (error) {
-		if (isMissingFileError(error)) return { config: { ...DEFAULT_CONFIG }, warnings: [] };
 		return {
 			config: { ...DEFAULT_CONFIG },
-			warnings: ["Could not read codex-usage config; using defaults."],
+			warnings: [`Could not resolve the global codex-usage config path: ${errorMessage(error)}`],
 		};
 	}
+
+	const layers: Array<{ label: string; path: string }> = [
+		{ label: "global", path: resolve(agentDirectory, "codex-usage.json") },
+	];
+	if (ctx.isProjectTrusted()) {
+		layers.push({
+			label: "project",
+			path: resolve(ctx.cwd, CONFIG_DIR_NAME, "codex-usage.json"),
+		});
+	}
+
+	for (const layer of layers) {
+		const value = await readConfigLayer(layer.path, layer.label, warnings);
+		if (value === undefined) continue;
+		if (!isConfigObject(value)) {
+			warnings.push(`${layer.label} codex-usage config must be a JSON object; ignoring it.`);
+			continue;
+		}
+		Object.assign(merged, value);
+	}
+
+	const parsed = parseConfig(merged);
+	return { config: parsed.config, warnings: [...warnings, ...parsed.warnings] };
+}
+
+function resolveAgentDirectory(): string {
+	const configured = process.env.PI_CODING_AGENT_DIR;
+	if (!configured) return resolve(userInfo().homedir, ".pi", "agent");
+	if (!isAbsolute(configured)) throw new Error("PI_CODING_AGENT_DIR must be absolute");
+	return resolve(configured);
+}
+
+async function readConfigLayer(
+	path: string,
+	label: string,
+	warnings: string[],
+): Promise<unknown | undefined> {
+	try {
+		return JSON.parse(await readFile(path, "utf8")) as unknown;
+	} catch (error) {
+		if (isMissingFileError(error)) return undefined;
+		warnings.push(`Could not read ${label} codex-usage config at ${path}; ignoring it.`);
+		return undefined;
+	}
+}
+
+function isConfigObject(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 async function resolveRuntimeAuth(
@@ -377,4 +431,8 @@ function isStaleContextError(error: unknown): boolean {
 
 function isMissingFileError(error: unknown): boolean {
 	return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }

@@ -1,6 +1,6 @@
 # DBZ Crew Events
 
-A minimal Pi adapter for DBZ Crew completion delivery. The shared CLI writes a private event addressed to the original Pi session; this extension recovers pending events and injects them with `deliverAs: "followUp"` and `triggerTurn: true`.
+A minimal Pi adapter for DBZ Crew completion delivery. The CLI bundled with the `dbz-crew` skill writes a private event addressed to the original Pi session; this extension recovers pending events and injects them with `deliverAs: "followUp"` and `triggerTurn: true`.
 
 The extension is inert outside an interactive Herdr-managed Pi process. It does not dispatch workers, manage Git, or replace the shared DBZ Crew skill.
 
