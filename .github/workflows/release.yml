@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Verify release tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$(git cat-file -t "$GITHUB_REF")" = tag
+
+          version="$(node -p "require('./package.json').version")"
+          test "$TAG" = "v$version"
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          tag_commit="$(git rev-list -n 1 "$GITHUB_REF")"
+          git merge-base --is-ancestor "$tag_commit" origin/main
+      - run: npm ci
+      - run: npm run check
+      - run: npm run pack:check
+
+  publish:
+    name: Publish npm package
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@debonzi/dbz-ai-tools
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: npm-publish-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm ci
+      - name: Publish with provenance
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}

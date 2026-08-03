@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-CANONICAL_SOURCE = "git:github.com/debonzi/dbz-ai-tools"
+CANONICAL_SOURCE = "npm:@debonzi/dbz-ai-tools"
 SETUP_SKILL = "dbz-ai-tools-setup"
 CODEX_USAGE_EXTENSION = "agents/pi/extensions/codex-usage/index.ts"
 CREW_EVENTS_EXTENSION = "agents/pi/extensions/dbz-crew-events/index.ts"
@@ -151,6 +151,21 @@ def package_source(entry: Any) -> str | None:
     return None
 
 
+def normalized_npm_source(source: str) -> str | None:
+    value = source.strip().lower()
+    if not value.startswith("npm:"):
+        return None
+    specification = value[len("npm:") :]
+    if specification.startswith("@"):
+        slash = specification.find("/")
+        version_separator = specification.find("@", slash + 1) if slash >= 0 else -1
+    else:
+        version_separator = specification.find("@")
+    if version_separator >= 0:
+        specification = specification[:version_separator]
+    return specification
+
+
 def normalized_git_source(source: str) -> str:
     value = source.strip().lower()
     if value.startswith("git:") and not value.startswith("git://"):
@@ -170,6 +185,8 @@ def normalized_git_source(source: str) -> str:
 
 
 def source_matches(source: str, base_dir: Path) -> bool:
+    if normalized_npm_source(source) == "@debonzi/dbz-ai-tools":
+        return True
     if normalized_git_source(source) == "github.com/debonzi/dbz-ai-tools":
         return True
     if source.startswith(("/", "./", "../", "~")):

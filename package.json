@@ -1,17 +1,59 @@
 {
-  "name": "dbz-ai-tools",
+  "name": "@debonzi/dbz-ai-tools",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Skills and extensions for the Pi coding agent.",
+  "author": "debonzi",
   "license": "MIT",
+  "homepage": "https://github.com/debonzi/dbz-ai-tools#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/debonzi/dbz-ai-tools.git"
+  },
+  "bugs": {
+    "url": "https://github.com/debonzi/dbz-ai-tools/issues"
+  },
   "keywords": [
     "pi-package"
   ],
+  "files": [
+    "CHANGELOG.md",
+    "agents/pi/extensions/codex-usage/README.md",
+    "agents/pi/extensions/codex-usage/config.example.json",
+    "agents/pi/extensions/codex-usage/core.ts",
+    "agents/pi/extensions/codex-usage/index.ts",
+    "agents/pi/extensions/dbz-crew-events/README.md",
+    "agents/pi/extensions/dbz-crew-events/index.ts",
+    "skills/dbz-ai-tools-setup/SKILL.md",
+    "skills/dbz-ai-tools-setup/scripts/configure.py",
+    "skills/dbz-crew/SKILL.md",
+    "skills/dbz-crew/references/CLI.md",
+    "skills/dbz-crew/scripts/dbz-crew",
+    "skills/dbz-issues/SKILL.md",
+    "skills/dbz-issues/scripts/issues.py",
+    "skills/dbz-spec/SKILL.md",
+    "skills/dbz-spec/agents/openai.yaml"
+  ],
+  "scripts": {
+    "test": "npm run test:python && npm run test:extensions && npm run test:shell",
+    "test:python": "python3 -m unittest discover -s skills/dbz-ai-tools-setup/tests -v && python3 -m unittest discover -s skills/dbz-crew/tests -v && python3 tests/test_dbz_issues.py -v && python3 tests/test_package.py -v",
+    "test:extensions": "TZ=UTC node --test agents/pi/extensions/codex-usage/core.test.ts agents/pi/extensions/dbz-crew-events/index.test.ts",
+    "test:shell": "tests/test-package-install.sh && tests/test-install.sh",
+    "pack:check": "npm pack --dry-run --ignore-scripts",
+    "check": "npm test",
+    "prepack": "npm run check"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
   },
+  "devDependencies": {
+    "@changesets/cli": "2.29.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "packageManager": "npm@12.0.1",
   "pi": {
     "skills": [
       "./skills"

@@ -9,7 +9,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "configure.py"
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
-CANONICAL_SOURCE = "git:github.com/debonzi/dbz-ai-tools"
+CANONICAL_SOURCE = "npm:@debonzi/dbz-ai-tools"
 
 
 class ConfigureTests(unittest.TestCase):
@@ -119,7 +119,19 @@ class ConfigureTests(unittest.TestCase):
         )
         self.assertFalse(second["changed"])
 
-    def test_official_git_source_forms_match_the_package(self) -> None:
+    def test_official_npm_source_forms_match_the_package(self) -> None:
+        sources = [
+            "npm:@debonzi/dbz-ai-tools",
+            "npm:@debonzi/dbz-ai-tools@0.1.0",
+            "npm:@debonzi/dbz-ai-tools@latest",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                self.write_json(self.global_settings, {"packages": [source]})
+                plan = self.run_helper("plan", "--scope", "global", "--skill", "dbz-spec")
+                self.assertEqual(plan["package_after"]["source"], source)
+
+    def test_official_git_source_forms_remain_supported(self) -> None:
         sources = [
             "https://github.com/debonzi/dbz-ai-tools",
             "git:https://github.com/debonzi/dbz-ai-tools.git@main",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -11,9 +12,18 @@ ROOT = Path(__file__).resolve().parents[1]
 class PackageManifestTests(unittest.TestCase):
     def test_manifest_exposes_only_intended_pi_resources(self) -> None:
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
-        self.assertTrue(package["private"])
+        self.assertEqual(package["name"], "@debonzi/dbz-ai-tools")
+        self.assertEqual(package["version"], "0.1.0")
+        self.assertNotIn("private", package)
         self.assertIn("pi-package", package["keywords"])
-        self.assertNotIn("scripts", package)
+        self.assertEqual(package["publishConfig"], {"access": "public"})
+        self.assertEqual(
+            package["repository"],
+            {
+                "type": "git",
+                "url": "git+https://github.com/debonzi/dbz-ai-tools.git",
+            },
+        )
         self.assertEqual(package["pi"]["skills"], ["./skills"])
         self.assertEqual(
             package["pi"]["extensions"],
@@ -24,6 +34,52 @@ class PackageManifestTests(unittest.TestCase):
         )
         for resource in package["pi"]["extensions"]:
             self.assertTrue((ROOT / resource).is_file(), resource)
+
+    def test_packed_archive_contains_only_runtime_context(self) -> None:
+        result = subprocess.run(
+            ["npm", "pack", "--dry-run", "--json", "--ignore-scripts"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        payload = json.loads(result.stdout)
+        if isinstance(payload, list):
+            details = payload[0]
+        elif "files" in payload:
+            details = payload
+        else:
+            details = next(iter(payload.values()))
+        packed = {entry["path"]: entry for entry in details["files"]}
+        expected = {
+            "CHANGELOG.md",
+            "LICENSE",
+            "README.md",
+            "agents/pi/extensions/codex-usage/README.md",
+            "agents/pi/extensions/codex-usage/config.example.json",
+            "agents/pi/extensions/codex-usage/core.ts",
+            "agents/pi/extensions/codex-usage/index.ts",
+            "agents/pi/extensions/dbz-crew-events/README.md",
+            "agents/pi/extensions/dbz-crew-events/index.ts",
+            "package.json",
+            "skills/dbz-ai-tools-setup/SKILL.md",
+            "skills/dbz-ai-tools-setup/scripts/configure.py",
+            "skills/dbz-crew/SKILL.md",
+            "skills/dbz-crew/references/CLI.md",
+            "skills/dbz-crew/scripts/dbz-crew",
+            "skills/dbz-issues/SKILL.md",
+            "skills/dbz-issues/scripts/issues.py",
+            "skills/dbz-spec/SKILL.md",
+            "skills/dbz-spec/agents/openai.yaml",
+        }
+        self.assertEqual(set(packed), expected)
+        for script in (
+            "skills/dbz-ai-tools-setup/scripts/configure.py",
+            "skills/dbz-crew/scripts/dbz-crew",
+            "skills/dbz-issues/scripts/issues.py",
+        ):
+            self.assertTrue(packed[script]["mode"] & 0o100, script)
 
     def test_every_skill_has_matching_valid_name_and_description(self) -> None:
         names: set[str] = set()

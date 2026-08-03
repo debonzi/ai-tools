@@ -13,16 +13,22 @@ Skills, extensions, tools, and configuration for the Pi coding agent.
 
 Requirements: Pi 0.83.0 or newer and Python 3. DBZ Crew additionally requires Git and Herdr with Pi worker support.
 
-Install the rolling package from its default Git branch:
+Install the public package from npm:
 
 ```bash
-pi install git:github.com/debonzi/dbz-ai-tools
+pi install npm:@debonzi/dbz-ai-tools
+```
+
+Pin a specific version when reproducibility is more important than automatic package updates:
+
+```bash
+pi install npm:@debonzi/dbz-ai-tools@0.1.0
 ```
 
 For a project-local package installation:
 
 ```bash
-pi install -l git:github.com/debonzi/dbz-ai-tools
+pi install -l npm:@debonzi/dbz-ai-tools
 ```
 
 Start or restart Pi, then run the explicit setup skill:
@@ -39,7 +45,7 @@ herdr integration install pi
 
 Finish with `/reload` or restart Pi. Package files are managed as one bundle; selection controls which resources Pi loads rather than which files are downloaded.
 
-Update the package with:
+Update unpinned packages with:
 
 ```bash
 pi update --extensions
@@ -47,7 +53,24 @@ pi update --extensions
 
 Existing allowlists keep skills introduced by an update disabled until `/skill:dbz-ai-tools-setup` is run again.
 
-Use `pi config` for Pi's native resource configuration UI and `pi remove git:github.com/debonzi/dbz-ai-tools` to remove the package. Removing the package does not uninstall the shared Herdr Pi integration.
+Use `pi config` for Pi's native resource configuration UI and `pi remove npm:@debonzi/dbz-ai-tools` to remove the package. Removing the package does not uninstall the shared Herdr Pi integration.
+
+### Source installation and npm migration
+
+The default Git branch remains available for source-based testing:
+
+```bash
+pi install git:github.com/debonzi/dbz-ai-tools
+```
+
+Pi treats Git and npm sources as different packages. To migrate an existing rolling Git installation without loading both copies, remove the Git source before installing the npm package:
+
+```bash
+pi remove git:github.com/debonzi/dbz-ai-tools
+pi install npm:@debonzi/dbz-ai-tools
+```
+
+Run `/skill:dbz-ai-tools-setup` again to recreate the desired resource filters.
 
 ## Migrate an installation created by the old Pi installer
 
@@ -105,23 +128,24 @@ ${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/codex-usage.json
 
 Project overrides are loaded only for trusted projects. See [`agents/pi/extensions/codex-usage/README.md`](agents/pi/extensions/codex-usage/README.md).
 
+## Releases
+
+Published releases use Changesets, annotated Semantic Versioning tags, GitHub environment approval, and npm trusted publishing with provenance. Maintainers should follow [`docs/releasing.md`](docs/releasing.md); contributors should add a Changeset with `npx changeset` for every user-visible package change.
+
 ## Security
 
-Pi packages run with the permissions of the local user. Review all skills, scripts, and extensions before installation. The package has no lifecycle installation script and never silently installs the Herdr integration or other software.
+Pi packages run with the permissions of the local user. Review all skills, scripts, and extensions before installation. The package has no `install` or `postinstall` lifecycle script and never silently installs the Herdr integration or other software.
 
 Credentials and agent-generated state are intentionally excluded from this repository.
 
 ## Validation
 
+Install the locked development dependencies and run the same checks used by CI and release validation:
+
 ```bash
-python3 -m unittest discover -s skills/dbz-ai-tools-setup/tests -v
-python3 -m unittest discover -s skills/dbz-crew/tests -v
-python3 tests/test_dbz_issues.py -v
-python3 tests/test_package.py -v
-tests/test-package-install.sh
-TZ=UTC node --test agents/pi/extensions/codex-usage/core.test.ts
-TZ=UTC node --test agents/pi/extensions/dbz-crew-events/index.test.ts
-tests/test-install.sh
+npm ci
+npm run check
+npm run pack:check
 ```
 
 ## License
