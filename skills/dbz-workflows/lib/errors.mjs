@@ -39,6 +39,11 @@ export const ERROR_CODES = Object.freeze({
 	INVALID_TICKET_TRANSITION: "invalid_ticket_transition",
 	INVALID_TICKET_DAG: "invalid_ticket_dag",
 	CONTEXT_BUDGET_EXCEEDED: "context_budget_exceeded",
+	TICKET_CLAIM_CONFLICT: "ticket_claim_conflict",
+	CLAIM_RECOVERY_REQUIRED: "claim_recovery_required",
+	INVALID_SCHEDULER_PLAN: "invalid_scheduler_plan",
+	INVALID_EXECUTOR_RESULT: "invalid_executor_result",
+	RESULT_ACCEPTANCE_FAILED: "result_acceptance_failed",
 });
 
 function normalizeDetails(details) {
@@ -204,6 +209,30 @@ export class DagError extends TicketError {
 export class ContextBudgetError extends TicketError {
 	constructor(message, options = {}) {
 		super(message, { ...options, code: ERROR_CODES.CONTEXT_BUDGET_EXCEEDED });
+	}
+}
+
+export class ClaimError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.TICKET_CLAIM_CONFLICT });
+	}
+}
+
+export class SchedulerError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.INVALID_SCHEDULER_PLAN });
+	}
+}
+
+export class ExecutorResultError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.INVALID_EXECUTOR_RESULT });
+	}
+}
+
+export class ResultAcceptanceError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.RESULT_ACCEPTANCE_FAILED });
 	}
 }
 

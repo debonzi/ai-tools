@@ -775,20 +775,19 @@ export async function transitionTicketStatus(
 	}, { homeDirectory, lockOptions });
 }
 
-export async function queryTicketReadiness(
-	identity,
-	workflowId,
+export async function queryTicketReadinessInContext(
+	context,
 	{
-		homeDirectory = homedir(),
 		contextWindowTokens,
 		externalBlocks = [],
 	} = {},
 ) {
-	const context = await resolveWorkflowArtifactContext(identity, workflowId, { homeDirectory });
 	const tickets = await listTicketsInContext(context);
-	validateTicketDag(tickets, { workflowId });
+	validateTicketDag(tickets, { workflowId: context.workflow.id });
 	const spec = await readSpecInContext(context);
-	const decisions = await listDecisions(context.identity, workflowId, { homeDirectory: context.homeDirectory });
+	const decisions = await listDecisions(context.identity, context.workflow.id, {
+		homeDirectory: context.homeDirectory,
+	});
 	const evaluations = new Map();
 	for (const ticket of tickets) {
 		const source = (await readFileWithDigest(ticket.path, { encoding: "utf8" })).data;
@@ -813,4 +812,17 @@ export async function queryTicketReadiness(
 		}),
 		context_budgets: Object.fromEntries(evaluations),
 	};
+}
+
+export async function queryTicketReadiness(
+	identity,
+	workflowId,
+	{
+		homeDirectory = homedir(),
+		contextWindowTokens,
+		externalBlocks = [],
+	} = {},
+) {
+	const context = await resolveWorkflowArtifactContext(identity, workflowId, { homeDirectory });
+	return queryTicketReadinessInContext(context, { contextWindowTokens, externalBlocks });
 }

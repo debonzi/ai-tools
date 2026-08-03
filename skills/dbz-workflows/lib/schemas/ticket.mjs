@@ -205,6 +205,10 @@ export function isBaselineBlockingResearch(metadata) {
 	return metadata?.type === "research" && metadata?.research_class === "baseline-blocking";
 }
 
+export function isProjectMutatingTicket(metadata) {
+	return metadata?.type === "implementation" || metadata?.type === "documentation";
+}
+
 export function isDiscoveryTicket(metadata) {
 	return DISCOVERY_TICKET_TYPES.includes(metadata?.type) && !isDeliveryTicket(metadata);
 }
@@ -386,6 +390,7 @@ export function ticketMetadataIssues(rawMetadata, { expectedId, expectedSlug, ex
 			} else {
 				if (!isSingleLine(claim.executor)) add(["execution", "claim", "executor"], "invalid_executor", "Ticket claim executor must be a non-empty single-line identifier.");
 				if (!isSingleLine(claim.session_id)) add(["execution", "claim", "session_id"], "invalid_session_id", "Ticket claim session_id must be a non-empty single-line identifier.");
+				if (claim.claim_id !== undefined && !isSingleLine(claim.claim_id)) add(["execution", "claim", "claim_id"], "invalid_claim_id", "Ticket claim claim_id must be a non-empty single-line identifier when present.");
 				if (!isRfc3339UtcTimestamp(claim.claimed_at)) add(["execution", "claim", "claimed_at"], "invalid_timestamp", "Ticket claim claimed_at must be RFC 3339 UTC.");
 			}
 		}
