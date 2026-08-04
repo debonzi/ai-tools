@@ -100,7 +100,10 @@ class PackageManifestTests(unittest.TestCase):
             self.assertNotIn(name, names)
             names.add(name)
 
-        self.assertEqual(names, {"dbz-ai-tools-setup", "dbz-crew", "dbz-issues", "dbz-spec"})
+        self.assertEqual(
+            names,
+            {"dbz-ai-tools-setup", "dbz-crew", "dbz-issues", "dbz-spec", "dbz-workflows"},
+        )
 
     def test_setup_is_explicit_and_dbz_crew_bundles_its_cli(self) -> None:
         setup = (ROOT / "skills/dbz-ai-tools-setup/SKILL.md").read_text(encoding="utf-8")

@@ -56,7 +56,7 @@ class ConfigureTests(unittest.TestCase):
         result = self.run_helper("list")
         self.assertEqual(
             [entry["name"] for entry in result["skills"]],
-            ["dbz-ai-tools-setup", "dbz-crew", "dbz-issues", "dbz-spec"],
+            ["dbz-ai-tools-setup", "dbz-crew", "dbz-issues", "dbz-spec", "dbz-workflows"],
         )
         self.assertEqual(
             [entry["name"] for entry in result["extensions"]],
