@@ -63,6 +63,10 @@ Isolated read-only workers are checked against their initial snapshot. Any chang
 
 Workers never merge, push, rebase `main`, or remove implementation worktrees. Implementation rebase, integration, and cleanup require separate explicit user requests and retain the strict clean-`main` preflight.
 
+### DBZ Workflows adapter boundary
+
+DBZ Workflows uses a reserved CLI adapter mode after its own scheduler and Git plans are explicitly confirmed. This mode can launch a worker in an existing, clean `dbz-tickets/...` worktree from a workflow branch, disables skills in that worker, marks its environment so DBZ Workflows canonical tools are inactive, and leaves branch reconciliation, integration, and cleanup to the DBZ Workflows coordinator. Reserved adapter flags and its `cancel` and `release` lifecycle commands are not a replacement for the user-facing DBZ Crew workflow above.
+
 ## State and completion
 
 State is always stored in `~/.local/state/dbz-crew`; `DBZ_CREW_STATE_DIR` and `XDG_STATE_HOME` do not change this location. Prompts, results, and completion events are private local state and must not be committed.

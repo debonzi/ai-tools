@@ -16,8 +16,18 @@ function makePiHarness() {
 	const commands = new Map<string, any>();
 	const tools = new Map<string, any>();
 	const events = new Map<string, any[]>();
+	const busHandlers = new Map<string, Array<(value: unknown) => unknown>>();
 	let activeTools = ["read", "bash", "edit", "write"];
 	const pi = {
+		events: {
+			on(name: string, handler: (value: unknown) => unknown) {
+				busHandlers.set(name, [...(busHandlers.get(name) ?? []), handler]);
+				return () => {};
+			},
+			emit(name: string, value: unknown) {
+				for (const handler of busHandlers.get(name) ?? []) handler(value);
+			},
+		},
 		registerCommand(name: string, definition: any) {
 			commands.set(name, definition);
 		},
@@ -37,7 +47,7 @@ function makePiHarness() {
 			activeTools = [...names];
 		},
 	};
-	return { pi, commands, tools, events, activeTools: () => activeTools };
+	return { pi, commands, tools, events, busHandlers, activeTools: () => activeTools };
 }
 
 function makeContext({
@@ -158,6 +168,7 @@ test("entry point registers both commands and the focused S09 tool surface", () 
 		"dbz_workflows_recover_claim",
 		"dbz_workflows_submit_result",
 		"dbz_workflows_accept_result",
+		"dbz_workflows_crew_executor",
 	]);
 });
 
@@ -194,6 +205,22 @@ test("dedicated read-only sessions disable mutating built-ins while retaining co
 	assert.equal(active.includes("write"), false);
 	for (const name of ["read", "dbz_workflows_submit_result"]) {
 		assert.equal(active.includes(name), true);
+	}
+});
+
+test("DBZ Crew worker sessions disable all canonical DBZ Workflows tools", async () => {
+	const previous = process.env.DBZ_WORKFLOWS_EXECUTOR;
+	process.env.DBZ_WORKFLOWS_EXECUTOR = "dbz-crew";
+	try {
+		const harness = makePiHarness();
+		dbzWorkflowsExtension(harness.pi as any);
+		const ctx = makeContext().ctx as any;
+		for (const handler of harness.events.get("session_start") ?? []) await handler({ reason: "startup" }, ctx);
+		assert.equal(harness.activeTools().some((name) => name.startsWith("dbz_workflows_")), false);
+		assert.equal(harness.activeTools().includes("read"), true);
+	} finally {
+		if (previous === undefined) delete process.env.DBZ_WORKFLOWS_EXECUTOR;
+		else process.env.DBZ_WORKFLOWS_EXECUTOR = previous;
 	}
 });
 

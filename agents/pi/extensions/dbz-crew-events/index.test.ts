@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 import dbzCrewEventsExtension, {
 	completionEventDirectory,
+	CREW_COMPLETION_EVENT_CHANNEL,
 	resolveStateRoot,
 	stableDigest,
 	validateCompletionEvent,
@@ -21,7 +22,13 @@ function makeHarness(sessionId: string, initialEntries: FakeEntry[] = [], homeDi
 	const sent: Array<{ message: any; options: any }> = [];
 	const appended: FakeEntry[] = [...initialEntries];
 	const notifications: Array<{ message: string; level: string }> = [];
+	const busEvents: Array<{ channel: string; data: unknown }> = [];
 	const pi = {
+		events: {
+			emit(channel: string, data: unknown) {
+				busEvents.push({ channel, data });
+			},
+		},
 		on(name: string, handler: (event: unknown, ctx: any) => unknown) {
 			handlers.set(name, handler);
 		},
@@ -45,7 +52,7 @@ function makeHarness(sessionId: string, initialEntries: FakeEntry[] = [], homeDi
 		},
 	};
 	dbzCrewEventsExtension(pi as any, { homeDirectory });
-	return { handlers, sent, appended, notifications, ctx };
+	return { handlers, sent, appended, notifications, busEvents, ctx };
 }
 
 async function writeEvent(
@@ -180,6 +187,9 @@ test("recovers a pending event and always delivers it as a follow-up", { concurr
 		await waitFor(() => harness.sent.length === 1);
 		assert.deepEqual(harness.sent[0]?.options, { deliverAs: "followUp", triggerTurn: true });
 		assert.match(harness.sent[0]?.message.content, /read-only worker worker-one implementation is done/u);
+		assert.equal(harness.busEvents.length, 1);
+		assert.equal(harness.busEvents[0]?.channel, CREW_COMPLETION_EVENT_CHANNEL);
+		assert.equal((harness.busEvents[0]?.data as { id?: unknown }).id, "event-recovery");
 		assert.equal(harness.appended.at(-1)?.customType, "dbz-crew-event-delivered");
 		await harness.handlers.get("session_shutdown")?.({}, harness.ctx);
 		await assert.rejects(readFile(readyPath, "utf8"), /ENOENT/u);

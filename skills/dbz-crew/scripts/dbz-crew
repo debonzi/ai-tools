@@ -28,6 +28,8 @@ WORKER_PHASES = {"implementation", "rebase"}
 PI_AGENT_KIND = "pi"
 PI_THINKING_LEVELS = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 READ_ONLY_MODES = {"isolated", "in-place"}
+WORKFLOW_ADAPTER_ENV = "DBZ_WORKFLOWS_EXECUTOR"
+WORKFLOW_ADAPTER_VALUE = "dbz-crew"
 STATE_DIRECTORY_PARTS = (".local", "state", "dbz-crew")
 PRIVATE_DIRECTORY_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
@@ -564,6 +566,8 @@ def preflight(
     committed_only: bool = False,
     base: str | None = None,
     allow_mutable_base: bool = False,
+    workflow_adapter: bool = False,
+    principal_session_id: str | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     try:
@@ -573,6 +577,12 @@ def preflight(
             committed_only,
             base,
             allow_mutable_base=allow_mutable_base,
+        )
+        validate_workflow_adapter_options(
+            workflow_adapter,
+            read_only=read_only,
+            in_place=in_place,
+            principal_session_id=principal_session_id,
         )
     except CrewError as exc:
         errors.append(str(exc))
@@ -586,7 +596,7 @@ def preflight(
     main_pane = ""
     main_workspace = ""
     principal_agent = ""
-    principal_session_id = ""
+    resolved_principal_session_id = ""
     worker_config: dict[str, str] | None = None
     dirty = False
     base_head = ""
@@ -604,7 +614,7 @@ def preflight(
                 head = current_head.stdout.strip()
                 base_head = head
 
-            if not read_only:
+            if not read_only and not workflow_adapter:
                 if branch != "main":
                     errors.append("current branch must be main")
                 main_ref = command(["git", "rev-parse", "--verify", "main"], repository)
@@ -612,7 +622,7 @@ def preflight(
                     errors.append("local main branch does not exist")
                 elif head and main_ref.stdout.strip() != head:
                     errors.append("HEAD must equal the local main commit")
-            elif committed_only and head:
+            elif read_only and committed_only and head:
                 selected_base = base or "HEAD"
                 commit_revision = f"{selected_base}^{{commit}}"
                 resolved = command(["git", "rev-parse", "--verify", commit_revision], repository)
@@ -626,7 +636,7 @@ def preflight(
                 errors.append("unable to inspect Git status")
             else:
                 dirty = bool(status.stdout.strip())
-                if dirty and not read_only:
+                if dirty and not read_only and not workflow_adapter:
                     errors.append("main worktree must be clean, including untracked files")
             for marker in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD"):
                 if command(["git", "rev-parse", "-q", "--verify", marker], repository).returncode == 0:
@@ -671,11 +681,11 @@ def preflight(
             worker_config = pi_worker_configuration(pi_overrides)
         except CrewError as exc:
             errors.append(str(exc))
-        session_id = os.environ.get("PI_SESSION_ID", "").strip()
+        session_id = (principal_session_id or os.environ.get("PI_SESSION_ID", "")).strip()
         if not session_id:
             errors.append("missing Pi principal session id")
         else:
-            principal_session_id = session_id
+            resolved_principal_session_id = session_id
             if not pi_event_bridge_ready(session_id):
                 errors.append("the DBZ Crew Pi event extension is not active; reload or restart Pi")
 
@@ -691,10 +701,11 @@ def preflight(
         "read_only": read_only,
         "read_only_mode": "in-place" if in_place else ("isolated" if read_only else None),
         "committed_only": committed_only,
+        "workflow_adapter": workflow_adapter,
         "main_pane": main_pane or None,
         "main_workspace": main_workspace or None,
         "principal_agent": principal_agent or None,
-        "principal_session_id": principal_session_id or None,
+        "principal_session_id": resolved_principal_session_id or None,
         "worker_config": worker_config,
     }
 
@@ -707,6 +718,8 @@ def require_preflight(
     committed_only: bool = False,
     base: str | None = None,
     allow_mutable_base: bool = False,
+    workflow_adapter: bool = False,
+    principal_session_id: str | None = None,
 ) -> dict[str, Any]:
     result = preflight(
         Path.cwd(),
@@ -716,6 +729,8 @@ def require_preflight(
         committed_only=committed_only,
         base=base,
         allow_mutable_base=allow_mutable_base,
+        workflow_adapter=workflow_adapter,
+        principal_session_id=principal_session_id,
     )
     if not result["ok"]:
         raise CrewError("preflight failed: " + "; ".join(result["errors"]))
@@ -832,6 +847,27 @@ def validate_read_only_options(
         raise CrewError("invalid read-only base")
     if base and not read_only and not allow_mutable_base:
         raise CrewError("--base is only available with --read-only --committed-only for preflight")
+
+
+def validate_workflow_adapter_options(
+    workflow_adapter: bool,
+    *,
+    read_only: bool,
+    in_place: bool,
+    principal_session_id: str | None = None,
+) -> None:
+    if principal_session_id is not None and not workflow_adapter:
+        raise CrewError("--principal-session-id requires --workflow-adapter")
+    if principal_session_id is not None and (
+        not principal_session_id.strip() or "\x00" in principal_session_id or re.search(r"[\r\n]", principal_session_id)
+    ):
+        raise CrewError("invalid DBZ Workflows principal session id")
+    if not workflow_adapter:
+        return
+    if in_place:
+        raise CrewError("DBZ Workflows adapter dispatch cannot use --in-place")
+    if os.environ.get(WORKFLOW_ADAPTER_ENV) == WORKFLOW_ADAPTER_VALUE:
+        raise CrewError("a DBZ Workflows executor cannot dispatch another DBZ Workflows worker")
 
 
 def safe_relative_path(value: str) -> Path:
@@ -1026,7 +1062,7 @@ def active_worker_task_ids(state: dict[str, Any]) -> list[str]:
         for task_id, worker in workers.items()
         if isinstance(task_id, str)
         and isinstance(worker, dict)
-        and worker.get("status") in {"running", "working", "rebasing"}
+        and worker.get("status") in {"running", "working", "rebasing", "cancelling"}
     ]
 
 
@@ -1063,6 +1099,50 @@ def worktree_path(repo_root: Path, branch: str) -> Path:
     return state_root() / "worktrees" / repository_id / branch_slug
 
 
+def validate_workflow_adapter_worktree(
+    repo_root: Path,
+    worktree_value: str | None,
+    expected_branch: str | None,
+) -> tuple[Path, str]:
+    if not worktree_value or not expected_branch:
+        raise CrewError("mutating DBZ Workflows adapter dispatch requires --existing-worktree and --expected-branch")
+    worktree = Path(worktree_value)
+    if not worktree.is_absolute() or Path(os.path.abspath(worktree)) != worktree:
+        raise CrewError("DBZ Workflows adapter worktree must be a normalized absolute path")
+    try:
+        metadata = worktree.lstat()
+        effective = worktree.resolve(strict=True)
+    except OSError as exc:
+        raise CrewError(f"DBZ Workflows adapter worktree is unavailable: {worktree}: {exc}") from exc
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode) or effective != worktree:
+        raise CrewError(f"DBZ Workflows adapter worktree must be a real normalized directory: {worktree}")
+    if not expected_branch.startswith("dbz-tickets/") or command(
+        ["git", "check-ref-format", "--branch", expected_branch],
+        repo_root,
+    ).returncode != 0:
+        raise CrewError(f"invalid DBZ Workflows ticket branch: {expected_branch}")
+    registered = command_text(["git", "worktree", "list", "--porcelain"], repo_root)
+    registered_paths = {
+        Path(line.removeprefix("worktree ")).resolve()
+        for line in registered.splitlines()
+        if line.startswith("worktree ")
+    }
+    if worktree not in registered_paths:
+        raise CrewError(f"DBZ Workflows adapter worktree is not registered in this repository: {worktree}")
+    actual_root = Path(command_text(["git", "rev-parse", "--show-toplevel"], worktree)).resolve()
+    common_root = Path(command_text(["git", "rev-parse", "--show-toplevel"], repo_root)).resolve()
+    if common_root != repo_root.resolve() or actual_root != worktree:
+        raise CrewError(f"DBZ Workflows adapter worktree does not belong to the expected repository: {worktree}")
+    actual_branch = command_text(["git", "branch", "--show-current"], worktree)
+    if actual_branch != expected_branch:
+        raise CrewError(
+            f"DBZ Workflows adapter worktree is on {actual_branch or 'detached HEAD'}, not {expected_branch}"
+        )
+    if command_text(["git", "status", "--porcelain"], worktree):
+        raise CrewError(f"DBZ Workflows adapter worktree must be clean before dispatch: {worktree}")
+    return worktree, actual_branch
+
+
 def cleanup_failed_dispatch(
     repo_root: Path,
     branch: str,
@@ -1092,12 +1172,17 @@ def worker_start_command(
     name: str,
     pane: str,
     worker_config: dict[str, str],
+    *,
+    workflow_adapter: bool = False,
 ) -> list[str]:
-    return [
+    arguments = [
         "herdr", "agent", "start", name, "--kind", PI_AGENT_KIND, "--pane", pane,
         "--timeout", "30000", "--", "--provider", worker_config["provider"],
         "--model", worker_config["model"], "--thinking", worker_config["thinking"],
     ]
+    if workflow_adapter:
+        arguments.append("--no-skills")
+    return arguments
 
 
 def launch_monitor(
@@ -1123,6 +1208,10 @@ def launch_monitor(
 
 def dispatch(args: argparse.Namespace) -> None:
     task_id = safe_task_id(args.task_id)
+    workflow_adapter = bool(getattr(args, "workflow_adapter", False))
+    existing_worktree = getattr(args, "existing_worktree", None)
+    expected_branch = getattr(args, "expected_branch", None)
+    principal_session_id_override = getattr(args, "principal_session_id", None)
     ensure_private_directory(state_root())
     validate_read_only_options(
         args.read_only,
@@ -1131,6 +1220,16 @@ def dispatch(args: argparse.Namespace) -> None:
         args.base,
         allow_mutable_base=True,
     )
+    validate_workflow_adapter_options(
+        workflow_adapter,
+        read_only=args.read_only,
+        in_place=args.in_place,
+        principal_session_id=principal_session_id_override,
+    )
+    if not workflow_adapter and (existing_worktree is not None or expected_branch is not None):
+        raise CrewError("--existing-worktree and --expected-branch require --workflow-adapter")
+    if workflow_adapter and args.read_only and (existing_worktree is not None or expected_branch is not None):
+        raise CrewError("read-only DBZ Workflows adapter dispatch creates its own isolated snapshot")
     overrides = {
         "provider": args.worker_provider,
         "model": args.worker_model,
@@ -1143,6 +1242,8 @@ def dispatch(args: argparse.Namespace) -> None:
         committed_only=args.committed_only,
         base=args.base,
         allow_mutable_base=True,
+        workflow_adapter=workflow_adapter,
+        principal_session_id=principal_session_id_override,
     )
     main_pane = check["main_pane"]
     main_workspace = check["main_workspace"]
@@ -1170,7 +1271,14 @@ def dispatch(args: argparse.Namespace) -> None:
     read_only_mode = "in-place" if args.in_place else ("isolated" if args.read_only else None)
     suffix = hashlib.sha256(str(state["session_key"]).encode()).hexdigest()[:8]
     branch: str | None = None
-    if not args.in_place:
+    worktree_managed = not workflow_adapter or args.read_only
+    if workflow_adapter and not args.read_only:
+        worker_path, branch = validate_workflow_adapter_worktree(
+            repo_root,
+            existing_worktree,
+            expected_branch,
+        )
+    elif not args.in_place:
         branch = f"dbz-crew/{suffix}/{task_id}"
         if command(
             ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
@@ -1187,6 +1295,8 @@ def dispatch(args: argparse.Namespace) -> None:
         base = check.get("base_head")
         if not isinstance(base, str):
             raise CrewError("read-only preflight did not resolve a base commit")
+    elif workflow_adapter:
+        base = command_text(["git", "rev-parse", "HEAD"], worker_path)
     else:
         base = args.base or "main"
         command_text(["git", "rev-parse", "--verify", base], repo_root)
@@ -1205,7 +1315,7 @@ def dispatch(args: argparse.Namespace) -> None:
             if export_before.get("head") != check.get("source_head"):
                 raise CrewError("the source HEAD changed after read-only preflight")
 
-        if not args.in_place:
+        if not args.in_place and worktree_managed:
             assert branch is not None
             ensure_private_directory(worker_path.parent)
             command_text(["git", "worktree", "add", "-b", branch, str(worker_path), base], repo_root)
@@ -1219,12 +1329,13 @@ def dispatch(args: argparse.Namespace) -> None:
         if baseline_file is not None:
             write_json(baseline_file, worktree_manifest(worker_path))
 
-        tab = command(
-            [
-                "herdr", "tab", "create", "--workspace", main_workspace, "--cwd", str(worker_path),
-                "--label", f"crew:{task_id}", "--no-focus",
-            ]
-        )
+        tab_arguments = [
+            "herdr", "tab", "create", "--workspace", main_workspace, "--cwd", str(worker_path),
+            "--label", f"crew:{task_id}", "--no-focus",
+        ]
+        if workflow_adapter:
+            tab_arguments.extend(["--env", f"{WORKFLOW_ADAPTER_ENV}={WORKFLOW_ADAPTER_VALUE}"])
+        tab = command(tab_arguments)
         if tab.returncode != 0:
             raise CrewError(tab.stderr.strip() or tab.stdout.strip() or "unable to create worker tab")
         tab_payload = json_from_text(tab.stdout)
@@ -1234,7 +1345,12 @@ def dispatch(args: argparse.Namespace) -> None:
             raise CrewError("Herdr did not return a worker tab and root pane")
 
         name = worker_name(task_id, state)
-        started = command(worker_start_command(name, root_pane, worker_config))
+        started = command(worker_start_command(
+            name,
+            root_pane,
+            worker_config,
+            workflow_adapter=workflow_adapter,
+        ))
         if started.returncode != 0:
             raise CrewError(
                 started.stderr.strip()
@@ -1257,8 +1373,16 @@ def dispatch(args: argparse.Namespace) -> None:
                 if args.in_place
                 else "Work only in this isolated read-only snapshot. "
             )
+            workflow_boundary = (
+                "You are executing through the DBZ Workflows adapter. Do not call DBZ Workflows commands or "
+                "tools and do not edit canonical DBZ Workflows artifacts; return only the result protocol "
+                "requested by the supplied execution packet. "
+                if workflow_adapter
+                else ""
+            )
             worker_prompt = (
                 "You are a DBZ-CREW read-only exploratory worker. "
+                + workflow_boundary
                 + location
                 + "Do not create, modify, remove, stage, or commit repository files. Avoid commands that "
                 "write generated files, caches, dependency state, or Git metadata. Do not create child agents, "
@@ -1267,8 +1391,16 @@ def dispatch(args: argparse.Namespace) -> None:
                 + args.prompt
             )
         else:
+            workflow_boundary = (
+                "You are executing through the DBZ Workflows adapter. Do not call DBZ Workflows commands or "
+                "tools and do not edit canonical DBZ Workflows artifacts; return only the result protocol "
+                "requested by the supplied execution packet. "
+                if workflow_adapter
+                else ""
+            )
             worker_prompt = (
-                "You are a DBZ-CREW worker. Work only in this assigned worktree. Do not create child agents, "
+                "You are a DBZ-CREW worker. " + workflow_boundary +
+                "Work only in this assigned worktree. Do not create child agents, "
                 "change main, merge, push, rebase main, or remove worktrees. Keep unrelated files untouched. "
                 "Do not run the DBZ Crew principal preflight: it validates the principal's main worktree and "
                 "will correctly fail in a worker branch. "
@@ -1296,6 +1428,8 @@ def dispatch(args: argparse.Namespace) -> None:
                 "read_only": args.read_only,
                 "read_only_mode": read_only_mode,
                 "committed_only": args.committed_only,
+                "workflow_adapter": workflow_adapter,
+                "worktree_managed": worktree_managed,
                 "snapshot": str(baseline_file) if baseline_file else None,
                 "repo_root": str(repo_root),
                 "source_head": check.get("source_head"),
@@ -1335,6 +1469,8 @@ def dispatch(args: argparse.Namespace) -> None:
         "read_only": args.read_only,
         "read_only_mode": read_only_mode,
         "committed_only": args.committed_only,
+        "workflow_adapter": workflow_adapter,
+        "worktree_managed": worktree_managed,
     }, indent=2))
 
 
@@ -1360,7 +1496,14 @@ def completion_event_text(
     output_file: Path,
     *,
     read_only: bool = False,
+    workflow_adapter: bool = False,
 ) -> str:
+    if workflow_adapter:
+        return (
+            f"DBZ-CREW EVENT: DBZ Workflows worker {task_id} {phase} is {status}. The DBZ Workflows "
+            f"coordinator adapter will normalize {output_file}. Inspect the canonical ticket result after adapter "
+            "processing; do not use DBZ Crew rebase, integrate, or cleanup for its DBZ Workflows-owned branch."
+        )
     if read_only:
         return (
             f"DBZ-CREW EVENT: read-only worker {task_id} {phase} is {status}. Read {output_file}, "
@@ -1601,7 +1744,14 @@ def monitor(args: argparse.Namespace) -> None:
     sound = "request" if status in {"blocked", "failed"} else "done"
     body = f"{args.task_id} ({phase}): {status}. Result: {output_file}"
     command(["herdr", "notification", "show", f"DBZ Crew: {args.task_id}", "--body", body, "--sound", sound])
-    event = completion_event_text(args.task_id, phase, status, output_file, read_only=read_only)
+    event = completion_event_text(
+        args.task_id,
+        phase,
+        status,
+        output_file,
+        read_only=read_only,
+        workflow_adapter=bool(worker.get("workflow_adapter")),
+    )
     if not args.principal_session_id:
         raise CrewError("Pi completion event has no principal session id")
     write_completion_event(
@@ -1623,9 +1773,11 @@ def rebase(args: argparse.Namespace) -> None:
     state, _, _ = current_state()
     check = require_preflight()
     worker = worker_record(state, task_id)
+    if worker.get("workflow_adapter"):
+        raise CrewError(f"DBZ Workflows adapter worker {task_id} must be reconciled by DBZ Workflows")
     if worker.get("read_only"):
         raise CrewError(f"read-only worker {task_id} cannot be rebased")
-    if worker.get("status") in {"running", "working", "rebasing"}:
+    if worker.get("status") in {"running", "working", "rebasing", "cancelling"}:
         raise CrewError(f"worker {task_id} is still active; wait for its result before requesting a rebase")
     if check.get("principal_agent") != PI_AGENT_KIND:
         raise CrewError("current principal is not Pi")
@@ -1700,6 +1852,8 @@ def integrate(args: argparse.Namespace) -> None:
         ),
         None,
     )
+    if isinstance(matching_worker, dict) and matching_worker.get("workflow_adapter"):
+        raise CrewError(f"DBZ Workflows adapter branch must be integrated by DBZ Workflows: {branch}")
     if isinstance(matching_worker, dict) and matching_worker.get("read_only"):
         raise CrewError(f"read-only branch cannot be integrated: {branch}")
     command_text(["git", "rev-parse", "--verify", branch], repo_root)
@@ -1740,9 +1894,13 @@ def cleanup(args: argparse.Namespace) -> None:
     if not isinstance(workers, dict):
         raise CrewError("no tracked dbz-crew workers are available for cleanup")
     worker = worker_record(state, args.task_id)
+    if worker.get("workflow_adapter") and not worker.get("worktree_managed", True):
+        raise CrewError(
+            f"DBZ Workflows adapter owns worktree cleanup for {args.task_id}; release its completed tab instead"
+        )
     if worker.get("branch") != branch:
         raise CrewError(f"worker {args.task_id} is tracked on {worker.get('branch')}, not {branch}")
-    if worker.get("status") in {"running", "working", "rebasing"}:
+    if worker.get("status") in {"running", "working", "rebasing", "cancelling"}:
         raise CrewError(f"worker {args.task_id} is still active; wait for its result before cleanup")
     worktree_value = worker.get("worktree")
     tab_id = worker.get("tab")
@@ -1790,6 +1948,89 @@ def cleanup(args: argparse.Namespace) -> None:
     print(f"Removed worker {args.task_id} and branch {branch}")
 
 
+def normalize_cancellation_reason(value: str) -> str:
+    reason = value.strip()
+    if not reason or "\x00" in reason or "\n" in reason or "\r" in reason or len(reason) > 500:
+        raise CrewError("cancellation reason must be a non-empty single line of at most 500 characters")
+    return reason
+
+
+def cancel(args: argparse.Namespace) -> None:
+    task_id = safe_task_id(args.task_id)
+    reason = normalize_cancellation_reason(args.reason)
+    state, _, _ = current_state()
+    worker = worker_record(state, task_id)
+    if worker.get("status") not in {"running", "working", "rebasing"}:
+        raise CrewError(f"worker {task_id} is not active and cannot be cancelled")
+    main_pane = state.get("main_pane")
+    tab_id = worker.get("tab")
+    principal_session_id = worker.get("principal_session_id")
+    if not all(isinstance(value, str) for value in (main_pane, tab_id, principal_session_id)):
+        raise CrewError(f"worker {task_id} has incomplete cancellation metadata")
+    assert isinstance(main_pane, str)
+    assert isinstance(tab_id, str)
+    assert isinstance(principal_session_id, str)
+    previous_status = set_recorded_worker_status(main_pane, task_id, "cancelling")
+    closed = command(["herdr", "tab", "close", tab_id])
+    if closed.returncode != 0:
+        set_recorded_worker_status(main_pane, task_id, previous_status or "running")
+        raise CrewError(closed.stderr.strip() or closed.stdout.strip() or f"unable to close worker tab {tab_id}")
+    output_file = result_path(main_pane, task_id)
+    write_private_text(
+        output_file,
+        f"DBZ-CREW RESULT: failed\n\nWorker cancellation was explicitly requested by the coordinator: {reason}\n",
+    )
+    event_id = f"{task_id}-implementation-{uuid.uuid4().hex}"
+    append_event(main_pane, event_id, task_id, "implementation", "failed", output_file)
+    write_completion_event(
+        event_id,
+        principal_session_id,
+        task_id,
+        "implementation",
+        "failed",
+        output_file,
+        completion_event_text(
+            task_id,
+            "implementation",
+            "failed",
+            output_file,
+            workflow_adapter=bool(worker.get("workflow_adapter")),
+        ),
+    )
+    print(json.dumps({
+        "task_id": task_id,
+        "status": "failed",
+        "cancelled": True,
+        "reason": reason,
+        "result": str(output_file),
+        "worktree_preserved": worker.get("worktree"),
+    }, indent=2))
+
+
+def release(args: argparse.Namespace) -> None:
+    task_id = safe_task_id(args.task_id)
+    state, _, _ = current_state()
+    worker = worker_record(state, task_id)
+    if not worker.get("workflow_adapter"):
+        raise CrewError(f"worker {task_id} is not owned by the DBZ Workflows adapter")
+    if worker.get("status") in {"running", "working", "rebasing", "cancelling"}:
+        raise CrewError(f"worker {task_id} is still active and cannot be released")
+    main_pane = state.get("main_pane")
+    tab_id = worker.get("tab")
+    if not isinstance(main_pane, str) or not isinstance(tab_id, str):
+        raise CrewError(f"worker {task_id} has incomplete release metadata")
+    closed = command(["herdr", "tab", "close", tab_id])
+    if closed.returncode != 0:
+        raise CrewError(closed.stderr.strip() or closed.stdout.strip() or f"unable to close worker tab {tab_id}")
+    remove_recorded_worker(main_pane, task_id)
+    print(json.dumps({
+        "task_id": task_id,
+        "released": True,
+        "worktree_preserved": worker.get("worktree"),
+        "branch_preserved": worker.get("branch"),
+    }, indent=2))
+
+
 def status(_: argparse.Namespace) -> None:
     pane = current_pane()
     pane_id = pane.get("pane_id")
@@ -1817,6 +2058,8 @@ def main() -> None:
     preflight_parser.add_argument("--in-place", action="store_true")
     preflight_parser.add_argument("--committed-only", action="store_true")
     preflight_parser.add_argument("--base")
+    preflight_parser.add_argument("--workflow-adapter", action="store_true", help=argparse.SUPPRESS)
+    preflight_parser.add_argument("--principal-session-id", help=argparse.SUPPRESS)
     dispatch_parser = subparsers.add_parser("dispatch")
     dispatch_parser.add_argument("--task-id", required=True)
     dispatch_parser.add_argument("--prompt", required=True)
@@ -1825,6 +2068,10 @@ def main() -> None:
     dispatch_parser.add_argument("--in-place", action="store_true")
     dispatch_parser.add_argument("--committed-only", action="store_true")
     dispatch_parser.add_argument("--parallel", action="store_true")
+    dispatch_parser.add_argument("--workflow-adapter", action="store_true", help=argparse.SUPPRESS)
+    dispatch_parser.add_argument("--existing-worktree", help=argparse.SUPPRESS)
+    dispatch_parser.add_argument("--expected-branch", help=argparse.SUPPRESS)
+    dispatch_parser.add_argument("--principal-session-id", help=argparse.SUPPRESS)
     dispatch_parser.add_argument("--worker-provider")
     dispatch_parser.add_argument("--worker-model")
     dispatch_parser.add_argument("--worker-thinking")
@@ -1843,6 +2090,11 @@ def main() -> None:
     cleanup_parser.add_argument("--task-id", required=True)
     cleanup_parser.add_argument("--branch", required=True)
     cleanup_parser.add_argument("--superseded-by")
+    cancel_parser = subparsers.add_parser("cancel", help=argparse.SUPPRESS)
+    cancel_parser.add_argument("--task-id", required=True)
+    cancel_parser.add_argument("--reason", required=True)
+    release_parser = subparsers.add_parser("release", help=argparse.SUPPRESS)
+    release_parser.add_argument("--task-id", required=True)
     finalizer_parser = subparsers.add_parser(
         "finalize-read-only",
         help="Finalize read-only worker resources (internal)",
@@ -1861,6 +2113,8 @@ def main() -> None:
                 in_place=args.in_place,
                 committed_only=args.committed_only,
                 base=args.base,
+                workflow_adapter=args.workflow_adapter,
+                principal_session_id=args.principal_session_id,
             ), indent=2))
         elif args.command == "dispatch":
             dispatch(args)
@@ -1872,6 +2126,10 @@ def main() -> None:
             rebase(args)
         elif args.command == "cleanup":
             cleanup(args)
+        elif args.command == "cancel":
+            cancel(args)
+        elif args.command == "release":
+            release(args)
         elif args.command == "finalize-read-only":
             finalize_read_only(args)
         elif args.command == "status":
