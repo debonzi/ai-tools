@@ -23,6 +23,10 @@ import {
 	validateWorkflowContinuation,
 } from "../../../../skills/dbz-workflows/lib/workflows.mjs";
 import {
+	returnToCoordinationSession,
+	runOrResumeTicketSession,
+} from "./sessions.ts";
+import {
 	assertDialogUI,
 	assertTrustedProject,
 	formatError,
@@ -61,6 +65,8 @@ export interface CommandDependencies {
 	listTickets: typeof listTickets;
 	queryTicketReadiness: typeof queryTicketReadiness;
 	planSchedulerWave: typeof planSchedulerWave;
+	runOrResumeTicketSession: typeof runOrResumeTicketSession;
+	returnToCoordinationSession: typeof returnToCoordinationSession;
 }
 
 const DEFAULT_DEPENDENCIES: CommandDependencies = {
@@ -80,6 +86,8 @@ const DEFAULT_DEPENDENCIES: CommandDependencies = {
 	listTickets,
 	queryTicketReadiness,
 	planSchedulerWave,
+	runOrResumeTicketSession,
+	returnToCoordinationSession,
 };
 
 export function createCommandCache(): CommandCache {
@@ -388,7 +396,7 @@ async function showStatus(
 	ctx.ui.notify(formatWorkflowDashboard(dashboard.workflow, dashboard.tickets, dashboard.readiness), "info");
 }
 
-async function previewTicketRun(
+async function runTicket(
 	ctx: ExtensionCommandContext,
 	identity: any,
 	requestedTicketId: string | undefined,
@@ -400,6 +408,9 @@ async function previewTicketRun(
 	if (!workflow) return;
 	const dashboard = await loadDashboard(identity, workflow.id, deps, cache, homeDirectory, ctx.model?.contextWindow);
 	const actionable = new Set(dashboard.readiness.actionable_ticket_ids);
+	const resumable = (candidate: any) => (
+		candidate.status === "in-progress" && candidate.execution?.claim?.executor === "manual"
+	);
 	let ticket = requestedTicketId === undefined
 		? undefined
 		: dashboard.tickets.find((candidate) => candidate.id === requestedTicketId);
@@ -409,34 +420,33 @@ async function previewTicketRun(
 	if (!ticket) {
 		const choices = new Map(
 			dashboard.tickets
-				.filter((candidate) => actionable.has(candidate.id))
+				.filter((candidate) => actionable.has(candidate.id) || resumable(candidate))
 				.map((candidate) => [ticketChoiceLabel(candidate), candidate]),
 		);
 		if (choices.size === 0) {
-			ctx.ui.notify(`Workflow '${workflow.id}' has no actionable tickets.`, "info");
+			ctx.ui.notify(`Workflow '${workflow.id}' has no actionable or resumable manual tickets.`, "info");
 			return;
 		}
-		const selected = await ctx.ui.select("Select an actionable ticket", [...choices.keys()]);
+		const selected = await ctx.ui.select("Select an actionable or resumable ticket", [...choices.keys()]);
 		if (selected === undefined) return;
 		ticket = choices.get(selected);
 	}
-	const plan = await deps.planSchedulerWave(identity, workflow.id, {
-		executor: "manual",
-		requestedTicketIds: [ticket.id],
-		maxConcurrency: 1,
-		contextWindowTokens: ctx.model?.contextWindow,
+	let plannedTicketDigest: string | undefined;
+	if (ticket.status === "open" && ticket.execution?.claim === null) {
+		const plan = await deps.planSchedulerWave(identity, workflow.id, {
+			executor: "manual",
+			requestedTicketIds: [ticket.id],
+			maxConcurrency: 1,
+			contextWindowTokens: ctx.model?.contextWindow,
+			homeDirectory,
+		});
+		plannedTicketDigest = plan.tickets[0]?.digest;
+	}
+	await deps.runOrResumeTicketSession(ctx, identity, workflow, ticket, {
 		homeDirectory,
+		contextWindowTokens: ctx.model?.contextWindow,
+		plannedTicketDigest,
 	});
-	ctx.ui.notify(
-		[
-			`Manual execution preview for ${workflow.id}/${ticket.id}`,
-			`Type: ${ticket.type}`,
-			`Mutates project: ${plan.tickets[0]?.mutates_project ? "yes" : "no"}`,
-			`Ticket digest: ${plan.tickets[0]?.digest}`,
-			"No claim was created. Dedicated replacement-session creation and context handoff are intentionally deferred to the session-isolation integration.",
-		].join("\n"),
-		"info",
-	);
 }
 
 async function previewVerification(
@@ -473,6 +483,11 @@ async function dispatchAction(
 		await runStorageSetup(ctx, deps, { homeDirectory, reconfigure: true });
 		return;
 	}
+	if (action === "continue") {
+		assertNoExtraArguments(action, argumentsList, 1);
+		const returned = await deps.returnToCoordinationSession(ctx, undefined, argumentsList[0], { homeDirectory });
+		if (returned.handled) return;
+	}
 	const identity = await deps.inspectGitProject(ctx.cwd);
 	await deps.resolveActiveStorage(identity, { homeDirectory });
 	if (action === "start") {
@@ -481,7 +496,6 @@ async function dispatchAction(
 		return;
 	}
 	if (action === "continue") {
-		assertNoExtraArguments(action, argumentsList, 1);
 		await continueWorkflow(ctx, identity, argumentsList[0], deps, cache, homeDirectory);
 		return;
 	}
@@ -492,7 +506,7 @@ async function dispatchAction(
 	}
 	if (action === "run") {
 		assertNoExtraArguments(action, argumentsList, 1);
-		await previewTicketRun(ctx, identity, argumentsList[0], deps, cache, homeDirectory);
+		await runTicket(ctx, identity, argumentsList[0], deps, cache, homeDirectory);
 		return;
 	}
 	if (action === "verify") {

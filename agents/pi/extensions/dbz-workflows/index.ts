@@ -9,6 +9,7 @@ import {
 	type FileMutationQueue,
 	type ToolDependencies,
 } from "./tools.ts";
+import { currentTicketSessionLocator } from "./sessions.ts";
 
 export interface DbzWorkflowsExtensionOptions {
 	homeDirectory?: string;
@@ -21,6 +22,12 @@ export default function dbzWorkflowsExtension(
 	pi: ExtensionAPI,
 	options: DbzWorkflowsExtensionOptions = {},
 ): void {
+	pi.on("session_start", (_event, ctx) => {
+		const locator = currentTicketSessionLocator(ctx.sessionManager);
+		if (locator === null || locator.mutates_project) return;
+		const retained = pi.getActiveTools().filter((name) => !["bash", "edit", "write"].includes(name));
+		pi.setActiveTools([...new Set(retained)]);
+	});
 	const cache = createCommandCache();
 	registerDbzWorkflowCommands(pi, {
 		cache,

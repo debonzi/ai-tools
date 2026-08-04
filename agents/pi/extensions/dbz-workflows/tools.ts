@@ -24,6 +24,7 @@ import { readLevelTwoSection } from "../../../../skills/dbz-workflows/lib/markdo
 import { acceptExecutorResult, applyExecutorResult } from "../../../../skills/dbz-workflows/lib/results.mjs";
 import { planSchedulerWave } from "../../../../skills/dbz-workflows/lib/scheduler.mjs";
 import { formatSequentialId } from "../../../../skills/dbz-workflows/lib/schemas/identifiers.mjs";
+import { isProjectMutatingTicket } from "../../../../skills/dbz-workflows/lib/schemas/ticket.mjs";
 import { inspectSpec, updateSpecDraftSections } from "../../../../skills/dbz-workflows/lib/specs.mjs";
 import {
 	createTicket,
@@ -37,6 +38,15 @@ import {
 	inspectWorkflow,
 	listWorkflows,
 } from "../../../../skills/dbz-workflows/lib/workflows.mjs";
+import {
+	createCurrentSessionExecutorResult,
+	prepareCoordinatorAcceptance,
+	submittedResultResponse,
+} from "./results.ts";
+import {
+	coordinatorCwdForSession,
+	currentTicketSessionLocator,
+} from "./sessions.ts";
 import { assertDialogUI, assertTrustedProject } from "./ui.ts";
 
 const ARTIFACT_KINDS = ["workflow", "spec", "ticket", "decision", "baseline"] as const;
@@ -166,7 +176,20 @@ export async function runQueuedMutation<T>(
 
 async function projectIdentity(ctx: ExtensionContext, deps: ToolDependencies): Promise<any> {
 	assertTrustedProject(ctx);
-	return deps.inspectGitProject(ctx.cwd);
+	const locator = currentTicketSessionLocator(ctx.sessionManager);
+	const identity = await deps.inspectGitProject(coordinatorCwdForSession(ctx));
+	if (locator !== null && identity.projectKey !== locator.project_key) {
+		throw new ValidationError("The active ticket-session locator does not match the recorded coordinator Git lineage.");
+	}
+	return identity;
+}
+
+function assertCoordinatorMutation(ctx: ExtensionContext, toolName: string): void {
+	if (currentTicketSessionLocator(ctx.sessionManager) !== null) {
+		throw new ValidationError(
+			`${toolName} is a coordinator-only canonical mutation and cannot run from a dedicated executor session. Return to coordination first.`,
+		);
+	}
 }
 
 async function artifactReference(
@@ -379,6 +402,7 @@ export function registerDbzWorkflowTools(
 			}), { minItems: 1 }),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
+			assertCoordinatorMutation(ctx, "dbz_workflows_update_spec_sections");
 			const identity = await projectIdentity(ctx, deps);
 			const spec = await deps.inspectSpec(identity, params.workflow_id, { homeDirectory });
 			return runQueuedMutation([spec.path], async () => toolResult(
@@ -431,6 +455,7 @@ export function registerDbzWorkflowTools(
 			})),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
+			assertCoordinatorMutation(ctx, "dbz_workflows_create_ticket");
 			const identity = await projectIdentity(ctx, deps);
 			const context = await deps.resolveWorkflowArtifactContext(identity, params.workflow_id, { homeDirectory });
 			const nextId = formatSequentialId("T", context.workflow.metadata.next_ticket_number);
@@ -480,6 +505,7 @@ export function registerDbzWorkflowTools(
 			superseded_by: Type.Optional(Type.Array(Type.String())),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
+			assertCoordinatorMutation(ctx, "dbz_workflows_transition_ticket");
 			const identity = await projectIdentity(ctx, deps);
 			const ticket = await deps.inspectTicket(identity, params.workflow_id, params.ticket_id, { homeDirectory });
 			return runQueuedMutation([ticket.path], async () => toolResult(
@@ -551,10 +577,16 @@ export function registerDbzWorkflowTools(
 			expected_ticket_digest: Type.String(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
+			assertCoordinatorMutation(ctx, "dbz_workflows_claim_ticket");
 			const identity = await projectIdentity(ctx, deps);
 			const sessionId = ctx.sessionManager.getSessionId();
 			if (!sessionId) throw new ValidationError("dbz_workflows_claim_ticket requires a persistent Pi session ID.");
 			const ticket = await deps.inspectTicket(identity, params.workflow_id, params.ticket_id, { homeDirectory });
+			if (isProjectMutatingTicket(ticket.metadata)) {
+				throw new ValidationError(
+					"Implementation and documentation tickets must be dispatched with /dbz-workflows run so their complete ticket-worktree Git plan is reviewed and applied before claiming.",
+				);
+			}
 			return runQueuedMutation([ticket.path], async () => toolResult(
 				"claim_ticket",
 				await deps.startManualExecution(identity, params.workflow_id, params.ticket_id, {
@@ -584,6 +616,7 @@ export function registerDbzWorkflowTools(
 			to_status: Type.Optional(StringEnum(["open", "blocked"] as const)),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
+			assertCoordinatorMutation(ctx, "dbz_workflows_recover_claim");
 			const identity = await projectIdentity(ctx, deps);
 			assertDialogUI(ctx, "DBZ Workflows claim recovery");
 			const ticket = await deps.inspectTicket(identity, params.workflow_id, params.ticket_id, { homeDirectory });
@@ -637,35 +670,32 @@ export function registerDbzWorkflowTools(
 		async execute(_id, params, _signal, _update, ctx) {
 			const identity = await projectIdentity(ctx, deps);
 			const ticket = await deps.inspectTicket(identity, params.workflow_id, params.ticket_id, { homeDirectory });
-			const sessionId = ctx.sessionManager.getSessionId();
-			if (
-				!sessionId ||
-				ticket.execution?.claim?.executor !== "manual" ||
-				ticket.execution?.claim?.session_id !== sessionId
-			) {
-				throw new ValidationError("dbz_workflows_submit_result may submit only the active manual claim owned by the current Pi session.");
+			const locator = currentTicketSessionLocator(ctx.sessionManager);
+			if (isProjectMutatingTicket(ticket.metadata)) {
+				if (
+					locator === null ||
+					!locator.mutates_project ||
+					locator.workflow_id !== params.workflow_id ||
+					locator.ticket_id !== params.ticket_id ||
+					resolve(ctx.cwd) !== locator.ticket_worktree
+				) {
+					throw new ValidationError(
+						"A mutating result may be submitted only from its claimed dedicated Pi session running in the applied ticket worktree.",
+					);
+				}
 			}
-			const result = deps.createExecutorResult({
-				workflow_id: params.workflow_id,
-				ticket_id: params.ticket_id,
-				claim: ticket.execution.claim,
-				outcome: params.outcome,
-				...(params.reason === undefined ? {} : { reason: params.reason }),
-				summary: params.summary,
-				deliverables: params.deliverables,
-				acceptance_criteria_evidence: params.acceptance_criteria_evidence,
-				validation: params.validation,
-				deviations: params.deviations,
-				follow_ups: params.follow_ups,
-				worker_commits: params.worker_commits ?? [],
-			}, { requireWorkerCommits: ticket.type === "implementation" || ticket.type === "documentation" });
+			const result = createCurrentSessionExecutorResult(ctx, ticket, params, deps.createExecutorResult);
 			return runQueuedMutation([ticket.path], async () => toolResult(
 				"submit_result",
-				await deps.applyExecutorResult(identity, params.workflow_id, params.ticket_id, result, {
-					expectedTicketDigest: params.expected_ticket_digest,
-					failedDisposition: params.failed_disposition,
-					homeDirectory,
-				}),
+				submittedResultResponse(
+					await deps.applyExecutorResult(identity, params.workflow_id, params.ticket_id, result, {
+						expectedTicketDigest: params.expected_ticket_digest,
+						failedDisposition: params.failed_disposition,
+						homeDirectory,
+					}),
+					params.workflow_id,
+					params.ticket_id,
+				),
 			), fileMutationQueue);
 		},
 	});
@@ -689,18 +719,10 @@ export function registerDbzWorkflowTools(
 			integrated_commits: Type.Optional(Type.Array(Type.String())),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
+			assertCoordinatorMutation(ctx, "dbz_workflows_accept_result");
 			const identity = await projectIdentity(ctx, deps);
 			const ticket = await deps.inspectTicket(identity, params.workflow_id, params.ticket_id, { homeDirectory });
-			let humanApproval: { confirmed: true; approved_by: "user" } | undefined;
-			if (ticket.type === "question-session") {
-				assertDialogUI(ctx, "Question-session result acceptance");
-				const confirmed = await ctx.ui.confirm(
-					`Accept human answers for ${params.ticket_id}?`,
-					"Confirm that the recorded questions, answers, unresolved items, and resulting decisions are accurate.",
-				);
-				if (!confirmed) throw new ValidationError("Question-session acceptance was not confirmed.");
-				humanApproval = { confirmed: true, approved_by: "user" };
-			}
+			const humanApproval = await prepareCoordinatorAcceptance(ctx, ticket);
 			return runQueuedMutation([ticket.path], async () => toolResult(
 				"accept_result",
 				await deps.acceptExecutorResult(identity, params.workflow_id, params.ticket_id, {

@@ -15,6 +15,8 @@ import {
 function makePiHarness() {
 	const commands = new Map<string, any>();
 	const tools = new Map<string, any>();
+	const events = new Map<string, any[]>();
+	let activeTools = ["read", "bash", "edit", "write"];
 	const pi = {
 		registerCommand(name: string, definition: any) {
 			commands.set(name, definition);
@@ -22,8 +24,20 @@ function makePiHarness() {
 		registerTool(definition: any) {
 			tools.set(definition.name, definition);
 		},
+		on(name: string, handler: any) {
+			events.set(name, [...(events.get(name) ?? []), handler]);
+		},
+		getAllTools() {
+			return ["read", "bash", "edit", "write", "grep", "find", "ls", ...tools.keys()].map((name) => ({ name }));
+		},
+		getActiveTools() {
+			return [...activeTools, ...tools.keys()];
+		},
+		setActiveTools(names: string[]) {
+			activeTools = [...names];
+		},
 	};
-	return { pi, commands, tools };
+	return { pi, commands, tools, events, activeTools: () => activeTools };
 }
 
 function makeContext({
@@ -56,7 +70,12 @@ function makeContext({
 		hasUI,
 		model: { contextWindow: 128_000 },
 		isProjectTrusted: () => trusted,
-		sessionManager: { getSessionId: () => sessionId },
+		sessionManager: {
+			getSessionId: () => sessionId,
+			getSessionFile: () => "/sessions/coordinator.jsonl",
+			getSessionDir: () => "/sessions",
+			getBranch: () => [],
+		},
 		ui: {
 			notify(message: string, level: string) {
 				notifications.push({ message, level });
@@ -140,6 +159,42 @@ test("entry point registers both commands and the focused S09 tool surface", () 
 		"dbz_workflows_submit_result",
 		"dbz_workflows_accept_result",
 	]);
+});
+
+test("dedicated read-only sessions disable mutating built-ins while retaining configured read-only tools", async () => {
+	const harness = makePiHarness();
+	dbzWorkflowsExtension(harness.pi as any);
+	const locator = {
+		version: 1,
+		project_key: identity.projectKey,
+		workflow_id: "WF-0001",
+		workflow_slug: "example-workflow",
+		ticket_id: "T-0001",
+		ticket_slug: "research-a-question",
+		claim_id: "claim-1",
+		executor_session_id: "executor-session",
+		executor_cwd: "/project",
+		mutates_project: false,
+		ticket_branch: null,
+		ticket_worktree: null,
+		coordinator_session_id: "coordinator-session",
+		coordinator_session_file: "/sessions/coordinator.jsonl",
+		coordinator_cwd: "/project",
+	};
+	const ctx = makeContext({ sessionId: "executor-session" }).ctx as any;
+	ctx.sessionManager.getBranch = () => [{
+		type: "custom",
+		customType: "dbz-workflows-ticket-session",
+		data: locator,
+	}];
+	for (const handler of harness.events.get("session_start") ?? []) await handler({ reason: "resume" }, ctx);
+	const active = harness.activeTools();
+	assert.equal(active.includes("bash"), false);
+	assert.equal(active.includes("edit"), false);
+	assert.equal(active.includes("write"), false);
+	for (const name of ["read", "dbz_workflows_submit_result"]) {
+		assert.equal(active.includes(name), true);
+	}
 });
 
 test("command completions expose direct actions and cached workflow and ticket IDs", () => {
@@ -281,7 +336,7 @@ test("reconfiguration displays the exact migration disclaimer and preserves the 
 	assert.deepEqual(authorization, { confirmed: true, planDigest: plan.plan_digest });
 });
 
-test("direct status, continue, run, and verify actions use core validation and readiness without dispatching", async () => {
+test("direct status, continue, run, and verify actions use core validation and dedicated-session dispatch", async () => {
 	const calls: string[] = [];
 	const harness = makePiHarness();
 	registerDbzWorkflowCommands(harness.pi as any, {
@@ -307,6 +362,10 @@ test("direct status, continue, run, and verify actions use core validation and r
 					tickets: [{ digest: ticket.digest, mutates_project: false }],
 				} as any;
 			},
+			runOrResumeTicketSession: async (_ctx, _identity, _workflow, selected, options) => {
+				calls.push(`run-session:${selected.id}:${options.plannedTicketDigest}`);
+				return { handled: true, action: "created" };
+			},
 		},
 	});
 	const ui = makeContext();
@@ -315,9 +374,8 @@ test("direct status, continue, run, and verify actions use core validation and r
 	await command.handler("continue WF-0001", ui.ctx);
 	await command.handler("run T-0001", ui.ctx);
 	await command.handler("verify WF-0001", ui.ctx);
-	assert.deepEqual(calls, ["continue", "plan-wave"]);
+	assert.deepEqual(calls, ["continue", "plan-wave", `run-session:T-0001:${ticket.digest}`]);
 	assert.ok(ui.notifications.some(({ message }) => /Actionable tickets: T-0001/u.test(message)));
-	assert.ok(ui.notifications.some(({ message }) => /No claim was created/u.test(message)));
 	assert.ok(ui.notifications.some(({ message }) => /verification\.md/u.test(message)));
 });
 
@@ -482,6 +540,41 @@ test("tool output is bounded by Pi's byte and line limits", () => {
 	assert.ok(Buffer.byteLength(result.text, "utf8") <= 50 * 1024);
 	assert.ok(result.text.split("\n").length <= 2_000);
 	assert.match(result.text, /Output truncated/u);
+});
+
+test("the generic claim tool cannot bypass reviewed worktree dispatch for mutating tickets", async () => {
+	const harness = makePiHarness();
+	let claimed = false;
+	registerDbzWorkflowTools(harness.pi as any, {
+		dependencies: {
+			inspectGitProject: async () => identity as any,
+			inspectTicket: async () => ({
+				...ticket,
+				type: "implementation",
+				metadata: { type: "implementation" },
+			}) as any,
+			startManualExecution: async () => {
+				claimed = true;
+				return {} as any;
+			},
+		},
+	});
+	const ui = makeContext();
+	await assert.rejects(
+		harness.tools.get("dbz_workflows_claim_ticket").execute(
+			"call-claim",
+			{
+				workflow_id: "WF-0001",
+				ticket_id: "T-0001",
+				expected_ticket_digest: ticket.digest,
+			},
+			undefined,
+			undefined,
+			ui.ctx,
+		),
+		/complete ticket-worktree Git plan.*reviewed and applied/u,
+	);
+	assert.equal(claimed, false);
 });
 
 test("claim recovery requires interactive UI and never assumes confirmation", async () => {
