@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -295,6 +295,42 @@ test("ticket integration rejects missing trailers and stale reviewed branch tips
 			);
 			assert.equal(await git(repository, "rev-parse", "HEAD"), plan.workflow.commit);
 		});
+	});
+});
+
+test("final integration permits only reviewed pending project-storage artifacts from the workflow branch", async () => {
+	await withRepository(async ({ repository }) => {
+		const workflowBranch = workflowBranchName(WORKFLOW_ID, WORKFLOW_SLUG);
+		await git(repository, "switch", "-c", workflowBranch);
+		const delivered = await commitFile(repository, "delivered.txt", "delivered\n", "deliver workflow");
+		const storageRoot = resolve(repository, "dbz-workflows");
+		await mkdir(storageRoot);
+		await writeFile(resolve(storageRoot, "verification.md"), "pending canonical evidence\n", "utf8");
+		const plan = await createFinalIntegrationPlan({
+			cwd: repository,
+			workflowId: WORKFLOW_ID,
+			workflowSlug: WORKFLOW_SLUG,
+			targetBranch: "main",
+			allowedDirtyRoot: storageRoot,
+		});
+		assert.equal(plan.action, "fast_forward_target_ref");
+		assert.equal(plan.source.allowed_dirty.entry_count, 1);
+		const result = await applyFinalIntegrationPlan(plan, { authorization: authorization(plan) });
+		assert.equal(result.contained, true);
+		assert.equal(await git(repository, "rev-parse", "main"), delivered);
+		assert.equal((await lstat(resolve(storageRoot, "verification.md"))).isFile(), true);
+
+		await writeFile(resolve(repository, "unexpected.txt"), "unexpected\n", "utf8");
+		await assert.rejects(
+			createFinalIntegrationPlan({
+				cwd: repository,
+				workflowId: WORKFLOW_ID,
+				workflowSlug: WORKFLOW_SLUG,
+				targetBranch: "main",
+				allowedDirtyRoot: storageRoot,
+			}),
+			GitStateError,
+		);
 	});
 });
 

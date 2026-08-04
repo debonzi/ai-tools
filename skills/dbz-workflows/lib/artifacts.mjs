@@ -82,6 +82,7 @@ export async function resolveWorkflowArtifactContext(
 		workflow,
 		paths: {
 			spec: resolveWithinRoot(directory, "spec.md"),
+			verification: resolveWithinRoot(directory, "verification.md"),
 			baselines: resolveWithinRoot(directory, "baselines"),
 			decisions: resolveWithinRoot(directory, "decisions"),
 			tickets: resolveWithinRoot(directory, "tickets"),

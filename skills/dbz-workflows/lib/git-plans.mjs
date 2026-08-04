@@ -1,9 +1,10 @@
-import { resolve } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import {
 	GitStateError,
 	PlanMismatchError,
 	ValidationError,
 } from "./errors.mjs";
+import { sha256Hex } from "./filesystem.mjs";
 import { inspectGitProject, runGit } from "./git-identity.mjs";
 import {
 	assertBranchNamespaceAvailable,
@@ -111,6 +112,77 @@ async function assertHeadMatches(plan, cwd, options) {
 		{ worktree_path: status.worktreePath },
 	);
 	return status;
+}
+
+function statusPaths(output) {
+	const records = output.split("\0");
+	if (records.at(-1) === "") records.pop();
+	const paths = [];
+	for (let index = 0; index < records.length; index += 1) {
+		const record = records[index];
+		if (record.length < 4 || record[2] !== " ") {
+			throw new GitStateError("Git returned malformed porcelain worktree status.");
+		}
+		const code = record.slice(0, 2);
+		paths.push(record.slice(3));
+		if (/[RC]/u.test(code)) {
+			index += 1;
+			if (records[index] === undefined) throw new GitStateError("Git returned malformed renamed-path status.");
+			paths.push(records[index]);
+		}
+	}
+	return paths;
+}
+
+async function inspectAllowedDirtyState(cwd, allowedDirtyRoot, options) {
+	const identity = await inspectGitProject(cwd, options);
+	const absoluteRoot = resolve(allowedDirtyRoot);
+	const relativeRoot = relative(identity.projectRoot, absoluteRoot);
+	if (relativeRoot.length === 0 || relativeRoot === ".." || relativeRoot.startsWith(`..${sep}`)) {
+		throw new ValidationError("allowedDirtyRoot must be a child directory of the repository worktree.");
+	}
+	const prefix = relativeRoot.split(sep).join("/");
+	const result = await git(
+		identity.projectRoot,
+		["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+		options,
+	);
+	const paths = statusPaths(result.stdout);
+	const unexpected = paths.filter((path) => path !== prefix && !path.startsWith(`${prefix}/`));
+	if (unexpected.length > 0) {
+		throw new GitStateError("Final integration permits pending project-storage artifacts only; other worktree changes must be resolved first.", {
+			details: { allowed_root: absoluteRoot, unexpected_entry_count: unexpected.length },
+		});
+	}
+	return {
+		status: {
+			worktreePath: identity.projectRoot,
+			headCommit: identity.headCommit,
+			headBranch: identity.headRef,
+			clean: paths.length === 0,
+			entryCount: paths.length,
+		},
+		descriptor: {
+			root: absoluteRoot,
+			entry_count: paths.length,
+			status_sha256: sha256Hex(result.stdout),
+		},
+	};
+}
+
+async function assertFinalSourceMatches(plan, cwd, options) {
+	if (plan.source?.allowed_dirty === null || plan.source?.allowed_dirty === undefined) {
+		return assertHeadMatches(plan, cwd, options);
+	}
+	const inspected = await inspectAllowedDirtyState(cwd, plan.source.allowed_dirty.root, options);
+	assertExpectedValue(inspected.status.headCommit, plan.source.head_commit, "The Git worktree HEAD changed after the plan was reviewed.");
+	assertExpectedValue(inspected.status.headBranch, plan.source.head_branch, "The checked-out branch changed after the plan was reviewed.");
+	if (JSON.stringify(inspected.descriptor) !== JSON.stringify(plan.source.allowed_dirty)) {
+		throw new PlanMismatchError("Pending project-storage artifact changes changed after final integration was reviewed.", {
+			details: { expected: plan.source.allowed_dirty, actual: inspected.descriptor },
+		});
+	}
+	return inspected.status;
 }
 
 function assertCommitArgument(value, name) {
@@ -765,20 +837,30 @@ export async function createFinalIntegrationPlan({
 	workflowId,
 	workflowSlug,
 	targetBranch,
+	allowedDirtyRoot,
 	...options
 } = {}) {
 	const context = gitOptions(options);
 	const identity = await inspectGitProject(cwd, context);
-	const status = await assertCleanWorktree(identity.projectRoot, context);
+	const allowedDirty = allowedDirtyRoot === undefined
+		? null
+		: await inspectAllowedDirtyState(identity.projectRoot, allowedDirtyRoot, context);
+	const status = allowedDirty === null
+		? await assertCleanWorktree(identity.projectRoot, context)
+		: allowedDirty.status;
 	await assertValidLocalBranchName(identity.projectRoot, targetBranch, context);
 	const workflowBranch = workflowBranchName(workflowId, workflowSlug);
+	if (allowedDirty !== null && status.headBranch !== workflowBranch) {
+		throw new GitStateError("Pending project-storage artifacts may be retained only while final integration runs from the workflow branch.");
+	}
 	if (targetBranch === workflowBranch) {
 		throw new ValidationError("Final integration target must differ from the workflow branch.");
 	}
-	if (status.headBranch !== targetBranch) {
-		throw new GitStateError(`Final integration planning must run on target branch '${targetBranch}'.`, {
-			details: { actual_branch: status.headBranch, target_branch: targetBranch },
-		});
+	if (status.headBranch !== targetBranch && status.headBranch !== workflowBranch) {
+		throw new GitStateError(
+			`Final integration planning must run on target branch '${targetBranch}' or workflow branch '${workflowBranch}'.`,
+			{ details: { actual_branch: status.headBranch, target_branch: targetBranch, workflow_branch: workflowBranch } },
+		);
 	}
 	const targetCommit = await resolveLocalBranchCommit(identity.projectRoot, targetBranch, context);
 	const workflowCommit = await resolveLocalBranchCommit(identity.projectRoot, workflowBranch, context);
@@ -800,7 +882,15 @@ export async function createFinalIntegrationPlan({
 			},
 		);
 	}
-	const action = workflowContained ? "already_contained" : "fast_forward_target";
+	let action;
+	if (workflowContained) {
+		action = "already_contained";
+	} else if (status.headBranch === targetBranch) {
+		action = "fast_forward_target";
+	} else {
+		await assertBranchNotCheckedOut(identity.projectRoot, targetBranch, context);
+		action = "fast_forward_target_ref";
+	}
 	return finalizePlan({
 		operation: GIT_PLAN_OPERATIONS.FINAL_INTEGRATION,
 		plan_version: 1,
@@ -812,10 +902,16 @@ export async function createFinalIntegrationPlan({
 			worktree_path: identity.projectRoot,
 			head_commit: status.headCommit,
 			head_branch: status.headBranch,
+			allowed_dirty: allowedDirty?.descriptor ?? null,
 		},
 		changes: action === "already_contained"
 			? []
-			: [{ action: "fast_forward", branch: targetBranch, from: targetCommit, to: workflowCommit }],
+			: [{
+				action: action === "fast_forward_target_ref" ? "fast_forward_ref" : "fast_forward",
+				branch: targetBranch,
+				from: targetCommit,
+				to: workflowCommit,
+			}],
 	});
 }
 
@@ -827,16 +923,27 @@ export async function applyFinalIntegrationPlan(
 	const context = gitOptions(options);
 	const cwd = plan.source?.worktree_path;
 	await assertPlanRepository(plan, cwd, context);
-	await assertHeadMatches(plan, cwd, context);
+	await assertFinalSourceMatches(plan, cwd, context);
 	const workflowCommit = await resolveLocalBranchCommit(cwd, plan.workflow.branch, context);
 	const targetCommit = await resolveLocalBranchCommit(cwd, plan.target.branch, context);
 	assertExpectedValue(workflowCommit, plan.workflow.commit, "The workflow branch moved after final integration was reviewed.");
 	assertExpectedValue(targetCommit, plan.target.commit, "The target branch moved after final integration was reviewed.");
-	if (plan.action === "fast_forward_target") {
+	if (plan.action === "fast_forward_target" || plan.action === "fast_forward_target_ref") {
 		if (!(await isCommitAncestor(cwd, targetCommit, workflowCommit, context))) {
 			throw new PlanMismatchError("The reviewed final integration is no longer a fast-forward.");
 		}
-		await git(cwd, ["merge", "--ff-only", plan.workflow.commit], context);
+		if (plan.action === "fast_forward_target") {
+			if (plan.source.head_branch !== plan.target.branch) {
+				throw new PlanMismatchError("A checked-out target merge plan must originate on the target branch.");
+			}
+			await git(cwd, ["merge", "--ff-only", plan.workflow.commit], context);
+		} else {
+			if (plan.source.head_branch !== plan.workflow.branch) {
+				throw new PlanMismatchError("A target-ref fast-forward plan must originate on the workflow branch.");
+			}
+			await assertBranchNotCheckedOut(cwd, plan.target.branch, context);
+			await git(cwd, ["update-ref", `refs/heads/${plan.target.branch}`, plan.workflow.commit, plan.target.commit], context);
+		}
 	} else if (plan.action !== "already_contained") {
 		throw new PlanMismatchError(`Unsupported final integration action '${String(plan.action)}'.`);
 	}
@@ -847,7 +954,7 @@ export async function applyFinalIntegrationPlan(
 	});
 	return {
 		operation: GIT_PLAN_OPERATIONS.FINAL_INTEGRATION,
-		changed: plan.action === "fast_forward_target",
+		changed: plan.action === "fast_forward_target" || plan.action === "fast_forward_target_ref",
 		action: plan.action,
 		workflow_commit: plan.workflow.commit,
 		target_branch: plan.target.branch,

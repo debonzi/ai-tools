@@ -1,6 +1,6 @@
 ---
 name: dbz-issues
-description: Manage local Markdown issue registries for AI agents, including explicit initialization and issue creation, read-only listing and inspection, dependency-aware readiness, editing, and terminal closure. Use when the requester asks to create, inspect, organize, update, prioritize, or close file-based issues; do not use for remote GitHub or GitLab issues.
+description: Manage local Markdown issue registries for AI agents, including explicit initialization and issue creation, read-only listing and inspection, dependency-aware readiness, editing, DBZ Workflows linkage, and terminal closure. Use when the requester asks to create, inspect, organize, update, prioritize, or close file-based issues; do not use for remote GitHub or GitLab issues.
 ---
 
 # DBZ Issues
@@ -14,7 +14,8 @@ Use the bundled `scripts/issues.py` CLI for every registry operation. Resolve pa
 - `list`, `show`, and `ready` are read-only and may be used to answer issue-registry questions.
 - Never edit issue Markdown files manually when the CLI can perform the operation.
 - Write issue titles and descriptions in English.
-- Never reopen, delete, force-close, or modify a closed issue. Open a new issue when follow-up work is needed.
+- Never reopen, delete, force-close, link, unlink, or otherwise modify a closed issue. Open a new issue when follow-up work is needed.
+- Use `link-workflow` and `unlink-workflow` only through a confirmed DBZ Workflows adapter operation; ordinary issue management must not create workflow links directly.
 - Never commit issue changes unless the user separately requests a commit.
 - Do not use this skill for GitHub, GitLab, or other remote issue systems.
 
@@ -69,6 +70,17 @@ python3 <skill-directory>/scripts/issues.py [--root <path>] edit <id-or-basename
 ```
 
 Pass `--depends-on` with no values to clear dependencies. Omit fields that should remain unchanged.
+
+DBZ Workflows uses the supported adapter-only linkage commands to maintain the issue side of a bidirectional relationship:
+
+```bash
+python3 <skill-directory>/scripts/issues.py [--root <path>] link-workflow <issue-id> \
+  --workflow-id WF-0001 --relation resolves
+python3 <skill-directory>/scripts/issues.py [--root <path>] unlink-workflow <issue-id> \
+  --workflow-id WF-0001 --relation resolves
+```
+
+Relations are `resolves`, `partially-addresses`, and `related`. Do not invoke these commands outside a confirmed DBZ Workflows adapter operation.
 
 Close an issue only after all dependencies are closed:
 

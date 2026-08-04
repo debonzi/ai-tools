@@ -23,6 +23,8 @@ ISSUE_FILE_RE = re.compile(r"^(?P<number>[0-9]{3,})-(?P<slug>[a-z0-9]+(?:-[a-z0-
 DEPENDENCY_RE = re.compile(r"^[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 STATUSES = {"open", "closed"}
+WORKFLOW_ID_RE = re.compile(r"^WF-[0-9]{4,}$")
+WORKFLOW_RELATIONS = {"resolves", "partially-addresses", "related"}
 
 
 class IssueError(RuntimeError):
@@ -39,6 +41,12 @@ class JsonArgumentParser(argparse.ArgumentParser):
 
 
 @dataclass(frozen=True)
+class WorkflowLink:
+    workflow_id: str
+    relation: str
+
+
+@dataclass(frozen=True)
 class Issue:
     path: Path
     identifier: str
@@ -49,6 +57,7 @@ class Issue:
     dependencies: tuple[str, ...]
     description: str
     closed: str | None = None
+    workflows: tuple[WorkflowLink, ...] = ()
 
 
 def utc_date() -> str:
@@ -231,6 +240,27 @@ def parse_issue(path: Path, expected_status: str) -> Issue:
                 fail("invalid_issue", f"{path}: empty dependencies must use []")
             fields[key] = dependencies
             continue
+        if key == "workflows":
+            workflows: list[WorkflowLink] = []
+            if raw == "[]":
+                fields[key] = workflows
+                index += 1
+                continue
+            if raw:
+                fail("invalid_issue", f"{path}: workflows must be [] or a YAML list")
+            index += 1
+            while index < end and lines[index].startswith("  - id: "):
+                workflow_id = parse_quoted(lines[index][8:].strip(), path, "workflow id")
+                index += 1
+                if index >= end or not lines[index].startswith("    relation: "):
+                    fail("invalid_issue", f"{path}: workflow {workflow_id} is missing its relation")
+                relation = lines[index][14:].strip()
+                workflows.append(WorkflowLink(workflow_id=workflow_id, relation=relation))
+                index += 1
+            if not workflows:
+                fail("invalid_issue", f"{path}: empty workflows must use []")
+            fields[key] = workflows
+            continue
         if key not in {"created", "status", "title", "closed"}:
             fail("invalid_issue", f"{path}: unsupported frontmatter field {key}")
         fields[key] = parse_quoted(raw, path, key) if key == "title" else raw
@@ -264,6 +294,16 @@ def parse_issue(path: Path, expected_status: str) -> Issue:
     for dependency in dependencies:
         if not DEPENDENCY_RE.fullmatch(dependency):
             fail("invalid_issue", f"{path}: invalid dependency identifier {dependency!r}")
+    workflows = tuple(fields.get("workflows", ()))
+    seen_workflows: set[str] = set()
+    for link in workflows:
+        if not WORKFLOW_ID_RE.fullmatch(link.workflow_id):
+            fail("invalid_issue", f"{path}: invalid workflow identifier {link.workflow_id!r}")
+        if link.relation not in WORKFLOW_RELATIONS:
+            fail("invalid_issue", f"{path}: invalid workflow relation {link.relation!r}")
+        if link.workflow_id in seen_workflows:
+            fail("invalid_issue", f"{path}: duplicate workflow link {link.workflow_id}")
+        seen_workflows.add(link.workflow_id)
 
     return Issue(
         path=path,
@@ -275,6 +315,7 @@ def parse_issue(path: Path, expected_status: str) -> Issue:
         dependencies=dependencies,
         description=description,
         closed=closed,
+        workflows=workflows,
     )
 
 
@@ -360,6 +401,10 @@ def issue_payload(issue: Issue, root: Path) -> dict[str, Any]:
         "dependencies": list(issue.dependencies),
         "description": issue.description,
         "path": str(issue.path.relative_to(root)),
+        "workflows": [
+            {"id": link.workflow_id, "relation": link.relation}
+            for link in issue.workflows
+        ],
     }
     if issue.closed is not None:
         payload["closed"] = issue.closed
@@ -378,6 +423,11 @@ def render_issue(issue: Issue) -> str:
         lines.extend(f"  - {json_string(dependency)}" for dependency in issue.dependencies)
     else:
         lines.append("dependencies: []")
+    if issue.workflows:
+        lines.append("workflows:")
+        for link in issue.workflows:
+            lines.append(f"  - id: {json_string(link.workflow_id)}")
+            lines.append(f"    relation: {link.relation}")
     if issue.closed is not None:
         lines.append(f"closed: {issue.closed}")
     lines.extend(["---", "", "## Description", "", issue.description.strip(), ""])
@@ -578,6 +628,62 @@ def edit_issue(
     return updated
 
 
+def link_issue_workflow(
+    root: Path,
+    identifier: str,
+    workflow_id: str,
+    relation: str,
+) -> tuple[Issue, bool]:
+    if not WORKFLOW_ID_RE.fullmatch(workflow_id):
+        fail("invalid_workflow_id", "workflow id must use WF- followed by a zero-padded number")
+    if relation not in WORKFLOW_RELATIONS:
+        fail("invalid_workflow_relation", f"unsupported workflow relation: {relation}")
+    issues = load_registry(root)
+    current = resolve_issue(issues, identifier)
+    if current.status != "open":
+        fail("closed_issue_immutable", f"closed issue cannot be linked: {current.identifier}")
+    existing = next((link for link in current.workflows if link.workflow_id == workflow_id), None)
+    if existing is not None and existing.relation == relation:
+        return current, False
+    workflows = tuple(
+        link for link in current.workflows if link.workflow_id != workflow_id
+    ) + (WorkflowLink(workflow_id=workflow_id, relation=relation),)
+    updated = replace(current, workflows=tuple(sorted(workflows, key=lambda link: link.workflow_id)))
+    atomic_replace(current.path, render_issue(updated))
+    return updated, True
+
+
+def unlink_issue_workflow(
+    root: Path,
+    identifier: str,
+    workflow_id: str,
+    relation: str,
+) -> tuple[Issue, bool]:
+    if not WORKFLOW_ID_RE.fullmatch(workflow_id):
+        fail("invalid_workflow_id", "workflow id must use WF- followed by a zero-padded number")
+    if relation not in WORKFLOW_RELATIONS:
+        fail("invalid_workflow_relation", f"unsupported workflow relation: {relation}")
+    issues = load_registry(root)
+    current = resolve_issue(issues, identifier)
+    if current.status != "open":
+        fail("closed_issue_immutable", f"closed issue cannot be unlinked: {current.identifier}")
+    matching = next(
+        (
+            link for link in current.workflows
+            if link.workflow_id == workflow_id and link.relation == relation
+        ),
+        None,
+    )
+    if matching is None:
+        return current, False
+    updated = replace(
+        current,
+        workflows=tuple(link for link in current.workflows if link != matching),
+    )
+    atomic_replace(current.path, render_issue(updated))
+    return updated, True
+
+
 def ensure_closed_directory(root: Path) -> Path:
     directory = root / "closed"
     if os.path.lexists(directory):
@@ -657,6 +763,16 @@ def build_parser() -> JsonArgumentParser:
     edit.add_argument("--description")
     edit.add_argument("--depends-on", nargs="*")
 
+    link = subparsers.add_parser("link-workflow")
+    link.add_argument("issue")
+    link.add_argument("--workflow-id", required=True)
+    link.add_argument("--relation", choices=tuple(sorted(WORKFLOW_RELATIONS)), required=True)
+
+    unlink_workflow = subparsers.add_parser("unlink-workflow")
+    unlink_workflow.add_argument("issue")
+    unlink_workflow.add_argument("--workflow-id", required=True)
+    unlink_workflow.add_argument("--relation", choices=tuple(sorted(WORKFLOW_RELATIONS)), required=True)
+
     close = subparsers.add_parser("close")
     close.add_argument("issue")
 
@@ -710,6 +826,34 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "ok": True,
             "command": "edit",
             "root": str(root),
+            "issue": issue_payload(issue, root),
+        }
+    if args.command == "link-workflow":
+        issue, changed = link_issue_workflow(
+            root,
+            args.issue,
+            args.workflow_id,
+            args.relation,
+        )
+        return {
+            "ok": True,
+            "command": "link-workflow",
+            "root": str(root),
+            "changed": changed,
+            "issue": issue_payload(issue, root),
+        }
+    if args.command == "unlink-workflow":
+        issue, changed = unlink_issue_workflow(
+            root,
+            args.issue,
+            args.workflow_id,
+            args.relation,
+        )
+        return {
+            "ok": True,
+            "command": "unlink-workflow",
+            "root": str(root),
+            "changed": changed,
             "issue": issue_payload(issue, root),
         }
     if args.command == "close":

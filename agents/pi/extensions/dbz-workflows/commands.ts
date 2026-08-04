@@ -26,6 +26,7 @@ import {
 	returnToCoordinationSession,
 	runOrResumeTicketSession,
 } from "./sessions.ts";
+import { runVerificationCommand } from "./verification.ts";
 import {
 	assertDialogUI,
 	assertTrustedProject,
@@ -67,6 +68,7 @@ export interface CommandDependencies {
 	planSchedulerWave: typeof planSchedulerWave;
 	runOrResumeTicketSession: typeof runOrResumeTicketSession;
 	returnToCoordinationSession: typeof returnToCoordinationSession;
+	runVerificationCommand: typeof runVerificationCommand;
 }
 
 const DEFAULT_DEPENDENCIES: CommandDependencies = {
@@ -88,6 +90,7 @@ const DEFAULT_DEPENDENCIES: CommandDependencies = {
 	planSchedulerWave,
 	runOrResumeTicketSession,
 	returnToCoordinationSession,
+	runVerificationCommand,
 };
 
 export function createCommandCache(): CommandCache {
@@ -460,14 +463,8 @@ async function previewVerification(
 	const workflow = await selectWorkflow(ctx, identity, workflowId, deps, cache, homeDirectory);
 	if (!workflow) return;
 	const dashboard = await loadDashboard(identity, workflow.id, deps, cache, homeDirectory, ctx.model?.contextWindow);
-	const verificationTickets = dashboard.tickets.filter((ticket) => ticket.type === "verification");
 	ctx.ui.notify(formatWorkflowDashboard(dashboard.workflow, dashboard.tickets, dashboard.readiness), "info");
-	ctx.ui.notify(
-		verificationTickets.length === 0
-			? "No verification ticket is currently defined. Canonical verification.md creation and final completion gates are provided by the later verification integration."
-			: `Verification tickets: ${verificationTickets.map((ticket) => `${ticket.id} (${ticket.status})`).join(", ")}. Final verification.md acceptance remains a separate guarded operation.`,
-		workflow.phase === "verification" ? "info" : "warning",
-	);
+	await deps.runVerificationCommand(ctx, identity, dashboard.workflow, { homeDirectory });
 }
 
 async function dispatchAction(

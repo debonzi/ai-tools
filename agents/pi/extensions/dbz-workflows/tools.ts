@@ -120,12 +120,12 @@ function rejectValue(value: unknown, name: string): void {
 	if (value !== undefined) throw new ValidationError(`${name} is not valid for this action.`);
 }
 
-function mutationDescription(name: string, purpose: string): string {
+export function mutationDescription(name: string, purpose: string): string {
 	return `${name} ${purpose} through deterministic DBZ Workflows core operations. ` +
 		`Use ${name} instead of editing DBZ Workflows managed frontmatter directly; direct managed-frontmatter edits are prohibited.`;
 }
 
-function mutationGuidelines(name: string): string[] {
+export function mutationGuidelines(name: string): string[] {
 	return [
 		`Use ${name} only for its documented canonical mutation, and do not edit DBZ Workflows managed frontmatter directly.`,
 	];
@@ -149,7 +149,7 @@ export function boundedToolText(value: unknown): { text: string; truncated: bool
 	};
 }
 
-function toolResult(operation: string, value: unknown) {
+export function toolResult(operation: string, value: unknown) {
 	const bounded = boundedToolText(value);
 	return {
 		content: [{ type: "text" as const, text: bounded.text }],
@@ -174,7 +174,10 @@ export async function runQueuedMutation<T>(
 	return run();
 }
 
-async function projectIdentity(ctx: ExtensionContext, deps: ToolDependencies): Promise<any> {
+export async function projectIdentity(
+	ctx: ExtensionContext,
+	deps: Pick<ToolDependencies, "inspectGitProject">,
+): Promise<any> {
 	assertTrustedProject(ctx);
 	const locator = currentTicketSessionLocator(ctx.sessionManager);
 	const identity = await deps.inspectGitProject(coordinatorCwdForSession(ctx));
@@ -184,7 +187,7 @@ async function projectIdentity(ctx: ExtensionContext, deps: ToolDependencies): P
 	return identity;
 }
 
-function assertCoordinatorMutation(ctx: ExtensionContext, toolName: string): void {
+export function assertCoordinatorMutation(ctx: ExtensionContext, toolName: string): void {
 	if (currentTicketSessionLocator(ctx.sessionManager) !== null) {
 		throw new ValidationError(
 			`${toolName} is a coordinator-only canonical mutation and cannot run from a dedicated executor session. Return to coordination first.`,

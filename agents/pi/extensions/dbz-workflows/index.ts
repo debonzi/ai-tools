@@ -15,6 +15,14 @@ import {
 	type DbzCrewRegistrationOptions,
 } from "./executors/dbz-crew.ts";
 import { currentTicketSessionLocator } from "./sessions.ts";
+import {
+	registerVerificationTools,
+	type VerificationDependencies,
+} from "./verification.ts";
+import {
+	registerIssuesTools,
+	type IssuesDependencies,
+} from "./issues.ts";
 
 export interface DbzWorkflowsExtensionOptions {
 	homeDirectory?: string;
@@ -22,6 +30,8 @@ export interface DbzWorkflowsExtensionOptions {
 	toolDependencies?: Partial<ToolDependencies>;
 	fileMutationQueue?: FileMutationQueue;
 	crewAdapter?: DbzCrewRegistrationOptions;
+	verificationDependencies?: Partial<VerificationDependencies>;
+	issuesDependencies?: Partial<IssuesDependencies>;
 }
 
 export default function dbzWorkflowsExtension(
@@ -47,6 +57,16 @@ export default function dbzWorkflowsExtension(
 	});
 	registerDbzWorkflowTools(pi, {
 		dependencies: options.toolDependencies,
+		homeDirectory: options.homeDirectory,
+		fileMutationQueue: options.fileMutationQueue,
+	});
+	registerVerificationTools(pi, {
+		dependencies: options.verificationDependencies,
+		homeDirectory: options.homeDirectory,
+		fileMutationQueue: options.fileMutationQueue,
+	});
+	registerIssuesTools(pi, {
+		dependencies: options.issuesDependencies,
 		homeDirectory: options.homeDirectory,
 		fileMutationQueue: options.fileMutationQueue,
 	});

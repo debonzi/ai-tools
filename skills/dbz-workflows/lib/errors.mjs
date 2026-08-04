@@ -44,6 +44,11 @@ export const ERROR_CODES = Object.freeze({
 	INVALID_SCHEDULER_PLAN: "invalid_scheduler_plan",
 	INVALID_EXECUTOR_RESULT: "invalid_executor_result",
 	RESULT_ACCEPTANCE_FAILED: "result_acceptance_failed",
+	VERIFICATION_NOT_FOUND: "verification_not_found",
+	INVALID_VERIFICATION_STATE: "invalid_verification_state",
+	VERIFICATION_STALE: "verification_stale",
+	ISSUE_ADAPTER_FAILED: "issue_adapter_failed",
+	ISSUE_CLOSURE_INELIGIBLE: "issue_closure_ineligible",
 });
 
 function normalizeDetails(details) {
@@ -233,6 +238,18 @@ export class ExecutorResultError extends TicketError {
 export class ResultAcceptanceError extends TicketError {
 	constructor(message, options = {}) {
 		super(message, { ...options, code: ERROR_CODES.RESULT_ACCEPTANCE_FAILED });
+	}
+}
+
+export class VerificationError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_VERIFICATION_STATE });
+	}
+}
+
+export class IssueAdapterError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.ISSUE_ADAPTER_FAILED });
 	}
 }
 

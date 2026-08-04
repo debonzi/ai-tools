@@ -212,6 +212,76 @@ class DbzIssuesTest(unittest.TestCase):
         self.assertEqual(edited["dependencies"], [])
         self.assertEqual(edited["title"], "Renamed title")
 
+    def test_workflow_links_are_cli_managed_bidirectional_metadata_and_closed_immutable(self) -> None:
+        self.initialize()
+        issue = self.create("Workflow-linked issue")
+        linked = self.run_cli(
+            "link-workflow",
+            issue["id"],
+            "--workflow-id",
+            "WF-0001",
+            "--relation",
+            "resolves",
+            root=self.root,
+        )
+        self.assertTrue(linked["changed"])
+        self.assertEqual(
+            linked["issue"]["workflows"],
+            [{"id": "WF-0001", "relation": "resolves"}],
+        )
+        repeated = self.run_cli(
+            "link-workflow",
+            issue["id"],
+            "--workflow-id",
+            "WF-0001",
+            "--relation",
+            "resolves",
+            root=self.root,
+        )
+        self.assertFalse(repeated["changed"])
+        changed = self.run_cli(
+            "link-workflow",
+            issue["id"],
+            "--workflow-id",
+            "WF-0001",
+            "--relation",
+            "related",
+            root=self.root,
+        )
+        self.assertEqual(changed["issue"]["workflows"][0]["relation"], "related")
+        unlinked = self.run_cli(
+            "unlink-workflow",
+            issue["id"],
+            "--workflow-id",
+            "WF-0001",
+            "--relation",
+            "related",
+            root=self.root,
+        )
+        self.assertTrue(unlinked["changed"])
+        self.assertEqual(unlinked["issue"]["workflows"], [])
+        self.run_cli(
+            "link-workflow",
+            issue["id"],
+            "--workflow-id",
+            "WF-0001",
+            "--relation",
+            "resolves",
+            root=self.root,
+        )
+        self.run_cli("close", issue["id"], root=self.root)
+        immutable = self.run_cli(
+            "unlink-workflow",
+            issue["id"],
+            "--workflow-id",
+            "WF-0001",
+            "--relation",
+            "resolves",
+            root=self.root,
+            expected=1,
+        )
+        self.assertEqual(immutable["error"]["code"], "closed_issue_immutable")
+
     def test_close_requires_closed_dependencies_and_closed_issues_are_immutable(self) -> None:
         self.initialize()
         prerequisite = self.create("Prerequisite")

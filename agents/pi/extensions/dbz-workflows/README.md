@@ -10,7 +10,7 @@ This extension is the Pi-specific command, setup, dashboard, and structured-tool
 - `/dbz-workflows continue [workflow-id]` validates continuation and shows workflow status.
 - `/dbz-workflows status [workflow-id]` shows workflow metadata, tickets, and derived actionable tickets.
 - `/dbz-workflows run [ticket-id]` reviews the manual execution plan, creates or resumes a dedicated claimed Pi session, and injects a bounded context packet assembled only from declared artifact references. Implementation and documentation tickets first display the complete S04 Git plan and require explicit confirmation before creating or adopting their `dbz-tickets/<workflow>/<ticket>-<slug>` branch and sibling ticket worktree.
-- `/dbz-workflows verify [workflow-id]` shows verification readiness. Canonical `verification.md` and final-integration gates are separate later operations.
+- `/dbz-workflows verify [workflow-id]` creates or resumes canonical criterion-by-criterion verification, reports staleness, applies only confirmed final-integration plans tied to the exact verified commit, and records required post-integration validation before completion.
 - `/dbz-workflows reconfigure` plans a guarded storage migration.
 
 Commands require a trusted project and Pi TUI or RPC UI. Print and JSON modes fail with an actionable error rather than assuming confirmation. TUI-only custom components are not required; setup and confirmation use Pi dialog APIs that also work over RPC.
@@ -26,7 +26,9 @@ The extension registers focused `dbz_workflows_*` tools for:
 - DAG, readiness, and scheduler-wave queries;
 - manual claims and explicitly confirmed missing-session claim recovery;
 - executor result submission, return to the recorded coordination session, reviewed mutating-result reconciliation/integration/cleanup, and coordinator-only acceptance;
-- optional DBZ Crew wave planning, explicit dispatch/resume, result collection, cancellation, and handoff to the same reviewed Git integration flow through `dbz_workflows_crew_executor` when the cohesive DBZ Crew CLI resource is installed.
+- optional DBZ Crew wave planning, explicit dispatch/resume, result collection, cancellation, and handoff to the same reviewed Git integration flow through `dbz_workflows_crew_executor` when the cohesive DBZ Crew CLI resource is installed;
+- `verification.md` attempts, criterion and mandatory-ticket evidence, correction-loop transitions, exact-commit staleness, confirmed final integration, and post-integration completion gates;
+- local DBZ Issues inspection, confirmed bidirectional linking, closure eligibility, and explicitly confirmed terminal closure through the supported DBZ Issues CLI adapter.
 
 All tool output is bounded to Pi's 50 KB / 2,000-line convention. Mutating tools use both DBZ Workflows core locks/revision guards and Pi's file mutation queue. Managed frontmatter must never be edited directly.
 
@@ -45,5 +47,9 @@ All tool output is bounded to Pi's 50 KB / 2,000-line convention. Mutating tools
 - Explicit DBZ Crew waves use the scheduler's confirmed concurrency limit (four by default). Mutating workers reuse the reviewed `dbz-tickets/<workflow>/<ticket>-<slug>` worktree rather than creating a competing Crew branch. In project storage mode, dispatch pauses after claims until canonical claim changes are committed or otherwise leave the workflow checkout clean; claims are retained for explicit resume.
 - Crew cancellation closes the worker but preserves its ticket branch/worktree and records a failed attempt so the ticket returns to a safe state. Worker failure or malformed/oversized output retains actionable diagnostics and never completes a ticket.
 - Mutating done results require separately reviewed reconciliation and workflow-integration plans. The completed Crew tab is released first without touching the DBZ Workflows-owned worktree. Reconciliation handles commit rebases, and integrated worktree/branch cleanup has its own complete reviewed plan and confirmation; declined or unsafe cleanup preserves the worktree.
+- Changed baselines, suspended specs, or changed workflow commits make verification stale. Failed verification returns to execution only after explicit correction and next-pass verification tickets exist.
+- Final integration is a reviewed digest-bound Git plan. Project-changing workflows remain `awaiting-integration` until the target contains the verified commit and required post-integration validation is tied to the exact current target commit.
+- DBZ issue links leave issues open. Only a bidirectional `resolves` link on a completed, current workflow is closure-eligible. No recorded deviations is direct evidence; otherwise every deviation requires an explicit determination, tied to the exact verification digest and the specific resolves-linked issue, that it does not invalidate resolution.
+- The reviewed terminal-closure plan and separate human confirmation show the exact recorded deviations, their evidence digest, and each issue-specific determination. Partial, related, cancelled, mismatched, stale, or resolution-invalidating links never become closure-eligible.
 - Replacement-session callbacks use only Pi's fresh replacement context.
 - When DBZ Crew resources are absent, the optional adapter and its tool are not registered; manual execution behavior is unchanged.

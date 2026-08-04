@@ -168,6 +168,15 @@ test("entry point registers both commands and the focused S09 tool surface", () 
 		"dbz_workflows_recover_claim",
 		"dbz_workflows_submit_result",
 		"dbz_workflows_accept_result",
+		"dbz_workflows_inspect_verification",
+		"dbz_workflows_start_verification",
+		"dbz_workflows_record_verification",
+		"dbz_workflows_integrate_workflow",
+		"dbz_workflows_complete_workflow",
+		"dbz_workflows_inspect_issue",
+		"dbz_workflows_link_issue",
+		"dbz_workflows_issue_closure_eligibility",
+		"dbz_workflows_close_issue",
 		"dbz_workflows_crew_executor",
 	]);
 });
@@ -393,6 +402,10 @@ test("direct status, continue, run, and verify actions use core validation and d
 				calls.push(`run-session:${selected.id}:${options.plannedTicketDigest}`);
 				return { handled: true, action: "created" };
 			},
+			runVerificationCommand: async (ctx) => {
+				calls.push("verify");
+				ctx.ui.notify("verification.md is ready for guarded verification.", "info");
+			},
 		},
 	});
 	const ui = makeContext();
@@ -401,7 +414,7 @@ test("direct status, continue, run, and verify actions use core validation and d
 	await command.handler("continue WF-0001", ui.ctx);
 	await command.handler("run T-0001", ui.ctx);
 	await command.handler("verify WF-0001", ui.ctx);
-	assert.deepEqual(calls, ["continue", "plan-wave", `run-session:T-0001:${ticket.digest}`]);
+	assert.deepEqual(calls, ["continue", "plan-wave", `run-session:T-0001:${ticket.digest}`, "verify"]);
 	assert.ok(ui.notifications.some(({ message }) => /Actionable tickets: T-0001/u.test(message)));
 	assert.ok(ui.notifications.some(({ message }) => /verification\.md/u.test(message)));
 });
