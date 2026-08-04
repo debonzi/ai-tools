@@ -9,6 +9,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def workflow_runtime_files() -> set[str]:
+    skill_root = ROOT / "skills" / "dbz-workflows"
+    extension_root = ROOT / "agents" / "pi" / "extensions" / "dbz-workflows"
+    paths = {
+        skill_root / "SKILL.md",
+        *skill_root.joinpath("references").glob("*.md"),
+        *skill_root.joinpath("scripts").glob("*.mjs"),
+        *(
+            path
+            for path in skill_root.joinpath("lib").rglob("*.mjs")
+            if not path.name.endswith(".test.mjs")
+        ),
+        *extension_root.rglob("*.md"),
+        *(
+            path
+            for path in extension_root.rglob("*.ts")
+            if not path.name.endswith(".test.ts")
+        ),
+    }
+    return {path.relative_to(ROOT).as_posix() for path in paths}
+
+
 class PackageManifestTests(unittest.TestCase):
     def test_manifest_exposes_only_intended_pi_resources(self) -> None:
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
@@ -30,7 +52,17 @@ class PackageManifestTests(unittest.TestCase):
             [
                 "./agents/pi/extensions/codex-usage/index.ts",
                 "./agents/pi/extensions/dbz-crew-events/index.ts",
+                "./agents/pi/extensions/dbz-workflows/index.ts",
             ],
+        )
+        self.assertEqual(
+            package["peerDependencies"],
+            {
+                "@earendil-works/pi-ai": "*",
+                "@earendil-works/pi-coding-agent": "*",
+                "@earendil-works/pi-tui": "*",
+                "typebox": "*",
+            },
         )
         for resource in package["pi"]["extensions"]:
             self.assertTrue((ROOT / resource).is_file(), resource)
@@ -72,12 +104,14 @@ class PackageManifestTests(unittest.TestCase):
             "skills/dbz-issues/scripts/issues.py",
             "skills/dbz-spec/SKILL.md",
             "skills/dbz-spec/agents/openai.yaml",
-        }
+        } | workflow_runtime_files()
         self.assertEqual(set(packed), expected)
+        self.assertFalse(any("test-fixtures" in path or ".test." in path for path in packed))
         for script in (
             "skills/dbz-ai-tools-setup/scripts/configure.py",
             "skills/dbz-crew/scripts/dbz-crew",
             "skills/dbz-issues/scripts/issues.py",
+            "skills/dbz-workflows/scripts/dbz-workflows.mjs",
         ):
             self.assertTrue(packed[script]["mode"] & 0o100, script)
 

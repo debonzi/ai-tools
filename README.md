@@ -11,7 +11,7 @@ Skills, extensions, tools, and configuration for the Pi coding agent.
 
 ## Install the Pi package
 
-Requirements: Pi 0.83.0 or newer and Python 3. DBZ Crew additionally requires Git and Herdr with Pi worker support.
+Requirements: Pi 0.83.0 or newer and Python 3. DBZ Workflows requires a non-shallow Git worktree with at least one commit and one reachable root. DBZ Crew additionally requires Git and Herdr with Pi worker support.
 
 Install the public package from npm:
 
@@ -37,7 +37,7 @@ Start or restart Pi, then run the explicit setup skill:
 /skill:dbz-ai-tools-setup
 ```
 
-Setup lets you choose global or project-local resource filters, select the skills to enable, and optionally enable `codex-usage`. The setup skill always remains enabled. Selecting `dbz-crew` also enables `dbz-crew-events` and offers to run the separately confirmed official integration command:
+Setup lets you choose global or project-local resource filters, select the skills to enable, and optionally enable `codex-usage`. The setup skill always remains enabled. Selecting `dbz-workflows` enables its Pi extension as one cohesive feature. Selecting `dbz-crew` also enables `dbz-crew-events` and offers to run the separately confirmed official integration command:
 
 ```bash
 herdr integration install pi
@@ -51,7 +51,7 @@ Update unpinned packages with:
 pi update --extensions
 ```
 
-Existing allowlists keep skills introduced by an update disabled until `/skill:dbz-ai-tools-setup` is run again.
+Existing allowlists keep skills and paired extensions introduced by an update disabled until `/skill:dbz-ai-tools-setup` is run again. Package updates replace package code only; DBZ Workflows project artifacts, external storage, locators, locks, and claims remain outside the npm-managed checkout.
 
 Use `pi config` for Pi's native resource configuration UI and `pi remove npm:@debonzi/dbz-ai-tools` to remove the package. Removing the package does not uninstall the shared Herdr Pi integration.
 
@@ -106,6 +106,19 @@ agents/pi/APPEND_SYSTEM.md      -> ${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/APPEN
 The command automatically replaces only recognized work-environment links from a sibling `dbz-toolbox` checkout. Existing regular files, unrelated links, linked destination directories, broken unexpected links, and invalid source configurations cause validation to fail before any changes. Repeated installation is idempotent.
 
 Only the individual configuration files are linked, so application logs and runtime state remain outside the repository. Applications that rewrite a linked configuration file will modify this checkout. See the [official Herdr configuration documentation](https://herdr.dev/docs/configuration/) for Herdr-specific behavior.
+
+## DBZ Workflows
+
+DBZ Workflows manages durable discovery and delivery as human-readable Markdown artifacts backed by deterministic core operations. It supports project-local, managed external, and exact user-selected external storage; approved specification baselines; dependency-aware tickets; isolated manual execution sessions; verification; and confirmed final Git integration.
+
+After enabling `dbz-workflows` through package setup, configure each Git project separately:
+
+```text
+/dbz-workflows-setup
+/dbz-workflows
+```
+
+Project setup validates Git identity and storage on every operation and never commits setup changes silently. The optional DBZ Crew executor is registered only when its bundled cohesive CLI resource is available; manual execution remains available without it. See [`agents/pi/extensions/dbz-workflows/README.md`](agents/pi/extensions/dbz-workflows/README.md) for the command and safety surface.
 
 ## DBZ Crew
 
