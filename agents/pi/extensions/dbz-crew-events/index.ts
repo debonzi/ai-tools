@@ -9,6 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 const EVENT_TYPE = "dbz-crew-event";
 const DELIVERED_ENTRY_TYPE = "dbz-crew-event-delivered";
+export const CREW_COMPLETION_EVENT_CHANNEL = "dbz-crew:completion";
 const DEFAULT_POLL_MS = 250;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
@@ -182,6 +183,7 @@ export default function dbzCrewEventsExtension(pi: ExtensionAPI, options: Extens
 						continue;
 					}
 
+					pi.events.emit(CREW_COMPLETION_EVENT_CHANNEL, event);
 					pi.sendMessage(
 						{
 							customType: EVENT_TYPE,

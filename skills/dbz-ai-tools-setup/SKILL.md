@@ -1,7 +1,7 @@
 ---
 name: dbz-ai-tools-setup
 description: Configure which skills and extensions from the DBZ AI Tools Pi package are enabled globally or for the current project. Use only when the user explicitly invokes this setup skill or asks to reconfigure the installed package.
-compatibility: Requires Pi 0.83.0 or newer and Python 3. DBZ Crew additionally requires Git, Herdr, and Pi worker support in Herdr.
+compatibility: Requires Pi 0.83.0 or newer and Python 3. DBZ Workflows additionally requires a supported Git worktree. DBZ Crew additionally requires Git, Herdr, and Pi worker support in Herdr.
 disable-model-invocation: true
 ---
 
@@ -35,7 +35,7 @@ Ask the user:
 
 Explain that all package files remain installed. The selection controls which resources Pi loads. Skills added by later package updates remain disabled until setup is run again.
 
-When `dbz-crew` is selected, `dbz-crew-events` is enabled automatically and cannot be selected independently.
+When `dbz-crew` is selected, `dbz-crew-events` is enabled automatically and cannot be selected independently. When `dbz-workflows` is selected, its Pi extension is enabled automatically and cannot be selected independently. The optional DBZ Crew executor inside DBZ Workflows remains unavailable when its cohesive CLI resource is absent.
 
 ## DBZ Crew preflight
 
@@ -108,4 +108,4 @@ herdr integration status
 
 Accept only a `pi: current` or legacy `pi: installed` status. If Herdr installation fails, report that settings were already updated and provide the exact retry command; do not roll back unrelated settings.
 
-Finish by reporting the enabled skills and extensions. Tell the user to run `/reload` or restart Pi. Never alter `trust.json` or commit project-local settings unless separately requested.
+Finish by reporting the enabled skills and automatically paired extensions. Tell the user that DBZ Workflows still requires separate per-project configuration through `/dbz-workflows-setup`. Tell the user to run `/reload` or restart Pi. Never alter `trust.json` or commit project-local settings unless separately requested.

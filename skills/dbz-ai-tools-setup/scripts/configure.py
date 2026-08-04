@@ -18,6 +18,7 @@ CANONICAL_SOURCE = "npm:@debonzi/dbz-ai-tools"
 SETUP_SKILL = "dbz-ai-tools-setup"
 CODEX_USAGE_EXTENSION = "agents/pi/extensions/codex-usage/index.ts"
 CREW_EVENTS_EXTENSION = "agents/pi/extensions/dbz-crew-events/index.ts"
+WORKFLOWS_EXTENSION = "agents/pi/extensions/dbz-workflows/index.ts"
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -75,6 +76,11 @@ def extension_catalog() -> list[dict[str, str]]:
             "name": "dbz-crew-events",
             "description": "Deliver DBZ Crew completion events to the originating Pi session.",
             "path": CREW_EVENTS_EXTENSION,
+        },
+        {
+            "name": "dbz-workflows",
+            "description": "Provide DBZ Workflows commands, tools, sessions, and dashboards.",
+            "path": WORKFLOWS_EXTENSION,
         },
     ]
     for extension in extensions:
@@ -224,6 +230,8 @@ def selected_resources(selected_names: list[str], enable_codex_usage: bool) -> t
     extensions: list[str] = []
     if "dbz-crew" in names:
         extensions.append(CREW_EVENTS_EXTENSION)
+    if "dbz-workflows" in names:
+        extensions.append(WORKFLOWS_EXTENSION)
     if enable_codex_usage:
         extensions.append(CODEX_USAGE_EXTENSION)
     return skills, sorted(extensions)

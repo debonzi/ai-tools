@@ -56,11 +56,11 @@ class ConfigureTests(unittest.TestCase):
         result = self.run_helper("list")
         self.assertEqual(
             [entry["name"] for entry in result["skills"]],
-            ["dbz-ai-tools-setup", "dbz-crew", "dbz-issues", "dbz-spec"],
+            ["dbz-ai-tools-setup", "dbz-crew", "dbz-issues", "dbz-spec", "dbz-workflows"],
         )
         self.assertEqual(
             [entry["name"] for entry in result["extensions"]],
-            ["codex-usage", "dbz-crew-events"],
+            ["codex-usage", "dbz-crew-events", "dbz-workflows"],
         )
 
     def test_global_allowlist_preserves_unrelated_settings_and_is_idempotent(self) -> None:
@@ -118,6 +118,30 @@ class ConfigureTests(unittest.TestCase):
             "--enable-codex-usage",
         )
         self.assertFalse(second["changed"])
+
+    def test_dbz_workflows_skill_and_extension_are_enabled_cohesively(self) -> None:
+        self.write_json(self.global_settings, {"packages": [CANONICAL_SOURCE]})
+        plan = self.run_helper(
+            "plan",
+            "--scope",
+            "global",
+            "--skill",
+            "dbz-workflows",
+        )
+        package = plan["package_after"]
+        self.assertEqual(
+            package["skills"],
+            [
+                "skills/dbz-ai-tools-setup/SKILL.md",
+                "skills/dbz-workflows/SKILL.md",
+            ],
+        )
+        self.assertEqual(
+            package["extensions"],
+            ["agents/pi/extensions/dbz-workflows/index.ts"],
+        )
+        self.assertEqual(plan["selected_extensions"], ["dbz-workflows"])
+        self.assertNotIn("agents/pi/extensions/dbz-crew-events/index.ts", package["extensions"])
 
     def test_official_npm_source_forms_match_the_package(self) -> None:
         sources = [
@@ -184,6 +208,31 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(updated["theme"], "light")
         self.assertEqual(updated["packages"][0], "npm:project-tool")
         self.assertEqual(updated["packages"][1]["source"], CANONICAL_SOURCE)
+
+        workflows = self.run_helper(
+            "plan",
+            "--scope",
+            "project",
+            "--project-root",
+            str(self.project),
+            "--skill",
+            "dbz-workflows",
+        )["package_after"]
+        self.assertEqual(
+            workflows["skills"],
+            [
+                "!skills/**",
+                "+skills/dbz-ai-tools-setup/SKILL.md",
+                "+skills/dbz-workflows/SKILL.md",
+            ],
+        )
+        self.assertEqual(
+            workflows["extensions"],
+            [
+                "!agents/pi/extensions/**",
+                "+agents/pi/extensions/dbz-workflows/index.ts",
+            ],
+        )
 
     def test_project_local_package_uses_a_full_allowlist(self) -> None:
         self.write_json(self.project_settings, {"packages": [str(PACKAGE_ROOT)]})

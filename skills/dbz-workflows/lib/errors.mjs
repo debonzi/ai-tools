@@ -1,0 +1,312 @@
+export const ERROR_CODES = Object.freeze({
+	INVALID_ARGUMENT: "invalid_argument",
+	INVALID_FRONTMATTER: "invalid_frontmatter",
+	INVALID_MARKDOWN: "invalid_markdown",
+	SCHEMA_VALIDATION_FAILED: "schema_validation_failed",
+	INVALID_PATH: "invalid_path",
+	PATH_OUTSIDE_ROOT: "path_outside_root",
+	UNSAFE_FILESYSTEM_ENTRY: "unsafe_filesystem_entry",
+	REVISION_CONFLICT: "revision_conflict",
+	LOCK_TIMEOUT: "lock_timeout",
+	LOCK_UNAVAILABLE: "lock_unavailable",
+	ATOMIC_WRITE_FAILED: "atomic_write_failed",
+	GIT_COMMAND_FAILED: "git_command_failed",
+	GIT_STATE_INVALID: "git_state_invalid",
+	UNSUPPORTED_GIT_REPOSITORY: "unsupported_git_repository",
+	INVALID_LOCATOR: "invalid_locator",
+	BROKEN_LOCATOR: "broken_locator",
+	INVALID_STORAGE_ROOT: "invalid_storage_root",
+	STORAGE_SETUP_REQUIRED: "storage_setup_required",
+	STORAGE_AMBIGUOUS: "storage_ambiguous",
+	SETUP_CONFLICT: "setup_conflict",
+	PLAN_MISMATCH: "plan_mismatch",
+	CONFIRMATION_REQUIRED: "confirmation_required",
+	MIGRATION_FAILED: "migration_failed",
+	WORKFLOW_NOT_FOUND: "workflow_not_found",
+	WORKFLOW_CONFLICT: "workflow_conflict",
+	INVALID_WORKFLOW_STATE: "invalid_workflow_state",
+	INVALID_WORKFLOW_TRANSITION: "invalid_workflow_transition",
+	SPEC_NOT_FOUND: "spec_not_found",
+	INVALID_SPEC_STATE: "invalid_spec_state",
+	DECISION_NOT_FOUND: "decision_not_found",
+	INVALID_DECISION_STATE: "invalid_decision_state",
+	BASELINE_NOT_FOUND: "baseline_not_found",
+	INVALID_BASELINE_STATE: "invalid_baseline_state",
+	BASELINE_IMMUTABILITY_VIOLATION: "baseline_immutability_violation",
+	INVALID_SYNTHESIS_INPUTS: "invalid_synthesis_inputs",
+	TICKET_NOT_FOUND: "ticket_not_found",
+	INVALID_TICKET_STATE: "invalid_ticket_state",
+	INVALID_TICKET_TRANSITION: "invalid_ticket_transition",
+	INVALID_TICKET_DAG: "invalid_ticket_dag",
+	CONTEXT_BUDGET_EXCEEDED: "context_budget_exceeded",
+	TICKET_CLAIM_CONFLICT: "ticket_claim_conflict",
+	CLAIM_RECOVERY_REQUIRED: "claim_recovery_required",
+	INVALID_SCHEDULER_PLAN: "invalid_scheduler_plan",
+	INVALID_EXECUTOR_RESULT: "invalid_executor_result",
+	RESULT_ACCEPTANCE_FAILED: "result_acceptance_failed",
+	VERIFICATION_NOT_FOUND: "verification_not_found",
+	INVALID_VERIFICATION_STATE: "invalid_verification_state",
+	VERIFICATION_STALE: "verification_stale",
+	ISSUE_ADAPTER_FAILED: "issue_adapter_failed",
+	ISSUE_CLOSURE_INELIGIBLE: "issue_closure_ineligible",
+});
+
+function normalizeDetails(details) {
+	if (details === undefined) return undefined;
+	if (details === null || typeof details !== "object" || Array.isArray(details)) {
+		return { value: details };
+	}
+	return { ...details };
+}
+
+export class DbzWorkflowsError extends Error {
+	constructor(message, { code = ERROR_CODES.INVALID_ARGUMENT, details, cause } = {}) {
+		super(message, cause === undefined ? undefined : { cause });
+		this.name = new.target.name;
+		this.code = code;
+		this.details = normalizeDetails(details);
+	}
+}
+
+export class ValidationError extends DbzWorkflowsError {
+	constructor(message, { code = ERROR_CODES.INVALID_ARGUMENT, details, cause } = {}) {
+		super(message, { code, details, cause });
+	}
+}
+
+export class SchemaValidationError extends ValidationError {
+	constructor(message, { issues = [], details, cause } = {}) {
+		super(message, {
+			code: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
+			details: { ...details, issues: issues.map((issue) => ({ ...issue })) },
+			cause,
+		});
+		this.issues = this.details.issues;
+	}
+}
+
+export class FrontmatterError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_FRONTMATTER });
+	}
+}
+
+export class MarkdownError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_MARKDOWN });
+	}
+}
+
+export class PathBoundaryError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.PATH_OUTSIDE_ROOT });
+	}
+}
+
+export class RevisionConflictError extends DbzWorkflowsError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.REVISION_CONFLICT });
+	}
+}
+
+export class LockError extends DbzWorkflowsError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.LOCK_UNAVAILABLE });
+	}
+}
+
+export class AtomicWriteError extends DbzWorkflowsError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.ATOMIC_WRITE_FAILED });
+	}
+}
+
+export class GitCommandError extends DbzWorkflowsError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.GIT_COMMAND_FAILED });
+	}
+}
+
+export class GitIdentityError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.UNSUPPORTED_GIT_REPOSITORY });
+	}
+}
+
+export class GitStateError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.GIT_STATE_INVALID });
+	}
+}
+
+export class LocatorError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_LOCATOR });
+	}
+}
+
+export class StorageResolutionError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_STORAGE_ROOT });
+	}
+}
+
+export class SetupError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.SETUP_CONFLICT });
+	}
+}
+
+export class PlanMismatchError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.PLAN_MISMATCH });
+	}
+}
+
+export class ConfirmationRequiredError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.CONFIRMATION_REQUIRED });
+	}
+}
+
+export class MigrationError extends DbzWorkflowsError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.MIGRATION_FAILED });
+	}
+}
+
+export class WorkflowError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_WORKFLOW_STATE });
+	}
+}
+
+export class SpecError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_SPEC_STATE });
+	}
+}
+
+export class DecisionError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_DECISION_STATE });
+	}
+}
+
+export class BaselineError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_BASELINE_STATE });
+	}
+}
+
+export class TicketError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_TICKET_STATE });
+	}
+}
+
+export class DagError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.INVALID_TICKET_DAG });
+	}
+}
+
+export class ContextBudgetError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.CONTEXT_BUDGET_EXCEEDED });
+	}
+}
+
+export class ClaimError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.TICKET_CLAIM_CONFLICT });
+	}
+}
+
+export class SchedulerError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.INVALID_SCHEDULER_PLAN });
+	}
+}
+
+export class ExecutorResultError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.INVALID_EXECUTOR_RESULT });
+	}
+}
+
+export class ResultAcceptanceError extends TicketError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: ERROR_CODES.RESULT_ACCEPTANCE_FAILED });
+	}
+}
+
+export class VerificationError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.INVALID_VERIFICATION_STATE });
+	}
+}
+
+export class IssueAdapterError extends ValidationError {
+	constructor(message, options = {}) {
+		super(message, { ...options, code: options.code ?? ERROR_CODES.ISSUE_ADAPTER_FAILED });
+	}
+}
+
+export function assertValid(condition, message, options = {}) {
+	if (!condition) throw new ValidationError(message, options);
+}
+
+export function validationIssue(path, code, message, details) {
+	if (
+		!Array.isArray(path) ||
+		path.some(
+			(part) =>
+				(typeof part === "string" && part.length === 0) ||
+				(typeof part !== "string" && (!Number.isSafeInteger(part) || part < 0)),
+		)
+	) {
+		throw new ValidationError("A schema issue path must be an array of string keys or integer indexes.");
+	}
+	if (typeof code !== "string" || !/^[a-z][a-z0-9_]*$/u.test(code)) {
+		throw new ValidationError("A schema issue code must be a non-empty snake_case identifier.");
+	}
+	if (typeof message !== "string" || message.length === 0) {
+		throw new ValidationError("A schema issue message must be a non-empty string.");
+	}
+	return {
+		path: [...path],
+		code,
+		message,
+		...(details === undefined ? {} : { details: normalizeDetails(details) }),
+	};
+}
+
+export function throwIfValidationIssues(issues, { artifact, path } = {}) {
+	if (!Array.isArray(issues)) throw new ValidationError("Schema issues must be an array.");
+	if (issues.length === 0) return;
+	const subject = artifact === undefined ? "Artifact" : `Artifact '${artifact}'`;
+	throw new SchemaValidationError(`${subject} failed schema validation with ${issues.length} issue(s).`, {
+		issues,
+		details: {
+			...(artifact === undefined ? {} : { artifact }),
+			...(path === undefined ? {} : { path }),
+		},
+	});
+}
+
+export function diagnosticFromError(error) {
+	if (error instanceof DbzWorkflowsError) {
+		return {
+			name: error.name,
+			code: error.code,
+			message: error.message,
+			...(error.details === undefined ? {} : { details: error.details }),
+		};
+	}
+	return {
+		name: error instanceof Error ? error.name : "Error",
+		code: "unexpected_error",
+		message: error instanceof Error ? error.message : String(error),
+	};
+}

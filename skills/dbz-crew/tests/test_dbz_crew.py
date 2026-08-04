@@ -289,6 +289,66 @@ class CrewTest(unittest.TestCase):
         self.assertEqual(result["principal_session_id"], "session-test")
         self.assertEqual(result["worker_config"]["model"], "gpt-test")
 
+    def test_workflow_adapter_preflight_allows_a_dirty_workflow_branch_without_weakening_default_preflight(self) -> None:
+        repository = Path(self.temporary.name) / "workflow-preflight-repo"
+        repository.mkdir()
+        CREW.write_json(
+            CREW.principal_ready_path("workflow-session"),
+            {"session_id": "workflow-session", "pid": os.getpid()},
+        )
+        CREW.write_json(
+            CREW.principal_ready_path("session-test"),
+            {"session_id": "session-test", "pid": os.getpid()},
+        )
+
+        def fake_command(args: list[str], cwd: Path | None = None):
+            key = tuple(args)
+            if key == ("git", "rev-parse", "--show-toplevel"):
+                return completed(stdout=f"{repository}\n")
+            if key == ("git", "branch", "--show-current"):
+                return completed(stdout="dbz-workflows/WF-0001-example\n")
+            if key == ("git", "rev-parse", "HEAD"):
+                return completed(stdout="abc123\n")
+            if key == ("git", "rev-parse", "--verify", "main"):
+                return completed(stdout="def456\n")
+            if key == ("git", "status", "--porcelain"):
+                return completed(stdout=" M dbz-workflows/ticket.md\n")
+            if key[:4] == ("git", "rev-parse", "-q", "--verify"):
+                return completed(returncode=1)
+            if key == ("herdr", "status", "server"):
+                return completed()
+            if key == ("herdr", "agent", "start", "--help"):
+                return completed(stdout="possible values: pi\n")
+            if key == ("herdr", "integration", "status"):
+                return completed(stdout="pi: current (v6) (/tmp/herdr-agent-state.ts)\n")
+            raise AssertionError(f"unexpected command: {args}")
+
+        pane = {
+            "agent": "pi",
+            "pane_id": "pane:workflow",
+            "workspace_id": "workspace:main",
+            "cwd": str(repository),
+        }
+        with (
+            mock.patch.object(CREW, "command", side_effect=fake_command),
+            mock.patch.object(CREW, "current_pane", return_value=pane),
+            mock.patch.object(CREW.shutil, "which", side_effect=lambda name: f"/bin/{name}"),
+        ):
+            adapted = CREW.preflight(
+                repository,
+                workflow_adapter=True,
+                principal_session_id="workflow-session",
+            )
+            ordinary = CREW.preflight(repository)
+
+        self.assertTrue(adapted["ok"], adapted["errors"])
+        self.assertTrue(adapted["dirty"])
+        self.assertEqual(adapted["branch"], "dbz-workflows/WF-0001-example")
+        self.assertEqual(adapted["principal_session_id"], "workflow-session")
+        self.assertFalse(ordinary["ok"])
+        self.assertIn("current branch must be main", ordinary["errors"])
+        self.assertIn("main worktree must be clean, including untracked files", ordinary["errors"])
+
     def test_codex_principal_is_rejected(self) -> None:
         repository = Path(self.temporary.name) / "unsupported-agent-repo"
         repository.mkdir()
@@ -819,6 +879,160 @@ class CrewTest(unittest.TestCase):
         CREW.record_dispatched_worker(pane, "worker-one", {"status": "running"}, False)
         with self.assertRaisesRegex(CREW.CrewError, "became active"):
             CREW.record_dispatched_worker(pane, "worker-two", {"status": "running"}, False)
+
+    def test_workflow_adapter_validates_and_reuses_the_exact_ticket_worktree(self) -> None:
+        repository = self.create_repository("workflow-adapter-repo")
+        (repository / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        self.git(repository, "add", "tracked.txt")
+        self.git(repository, "commit", "-m", "test: initial")
+        self.git(repository, "checkout", "-b", "dbz-workflows/WF-0001-example")
+        branch = "dbz-tickets/WF-0001/T-0001-research"
+        worktree = Path(self.temporary.name) / "ticket-worktree"
+        self.git(repository, "worktree", "add", "-b", branch, str(worktree), "HEAD")
+
+        resolved, actual_branch = CREW.validate_workflow_adapter_worktree(
+            repository.resolve(),
+            str(worktree.resolve()),
+            branch,
+        )
+        self.assertEqual(resolved, worktree.resolve())
+        self.assertEqual(actual_branch, branch)
+
+        link = Path(self.temporary.name) / "ticket-link"
+        link.symlink_to(worktree, target_is_directory=True)
+        with self.assertRaisesRegex(CREW.CrewError, "real normalized directory"):
+            CREW.validate_workflow_adapter_worktree(repository.resolve(), str(link), branch)
+
+    def test_workflow_adapter_dispatch_uses_external_ticket_worktree_and_worker_guard(self) -> None:
+        repository = self.create_repository("workflow-dispatch-repo")
+        (repository / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        self.git(repository, "add", "tracked.txt")
+        self.git(repository, "commit", "-m", "test: initial")
+        self.git(repository, "checkout", "-b", "dbz-workflows/WF-0001-example")
+        branch = "dbz-tickets/WF-0001/T-0001-implement"
+        worktree = Path(self.temporary.name) / "workflow-ticket"
+        self.git(repository, "worktree", "add", "-b", branch, str(worktree), "HEAD")
+        check = {
+            "repo_root": str(repository.resolve()),
+            "main_pane": "pane:main",
+            "main_workspace": "workspace:main",
+            "principal_agent": "pi",
+            "principal_session_id": "session-test",
+            "worker_config": CREW.pi_worker_configuration(),
+            "source_head": self.git(repository, "rev-parse", "HEAD"),
+            "base_head": self.git(repository, "rev-parse", "HEAD"),
+        }
+        args = argparse.Namespace(
+            task_id="dbzw-1234567890123456789",
+            prompt="Execute the bounded workflow ticket",
+            base=None,
+            read_only=False,
+            in_place=False,
+            committed_only=False,
+            parallel=False,
+            workflow_adapter=True,
+            existing_worktree=str(worktree.resolve()),
+            expected_branch=branch,
+            worker_provider=None,
+            worker_model=None,
+            worker_thinking=None,
+        )
+        calls: list[list[str]] = []
+        original_command = CREW.command
+
+        def fake_command(command_args: list[str], cwd: Path | None = None):
+            calls.append(command_args)
+            if command_args[0] == "git":
+                return original_command(command_args, cwd)
+            if command_args[:3] == ["herdr", "tab", "create"]:
+                return completed(stdout='{"tab_id":"tab:worker","pane_id":"pane:worker"}\n')
+            if command_args[:3] == ["herdr", "agent", "start"]:
+                return completed()
+            if command_args[:3] == ["herdr", "pane", "split"]:
+                return completed(stdout='{"pane_id":"pane:monitor"}\n')
+            raise AssertionError(f"unexpected command: {command_args}")
+
+        with (
+            mock.patch.object(CREW, "require_preflight", return_value=check),
+            mock.patch.object(CREW, "command", side_effect=fake_command),
+            mock.patch.object(CREW, "launch_monitor") as launch_monitor,
+            mock.patch("builtins.print"),
+        ):
+            CREW.dispatch(args)
+
+        state = json.loads(CREW.state_path("pane:main").read_text(encoding="utf-8"))
+        worker = state["workers"][args.task_id]
+        self.assertEqual(worker["branch"], branch)
+        self.assertEqual(worker["worktree"], str(worktree.resolve()))
+        self.assertTrue(worker["workflow_adapter"])
+        self.assertFalse(worker["worktree_managed"])
+        self.assertFalse(any(call[:3] == ["git", "worktree", "add"] for call in calls))
+        tab_call = next(call for call in calls if call[:3] == ["herdr", "tab", "create"])
+        self.assertIn(f"{CREW.WORKFLOW_ADAPTER_ENV}={CREW.WORKFLOW_ADAPTER_VALUE}", tab_call)
+        start_call = next(call for call in calls if call[:3] == ["herdr", "agent", "start"])
+        self.assertIn("--no-skills", start_call)
+        prompt = CREW.read_private_text(CREW.task_path("pane:main", args.task_id))
+        self.assertIn("do not edit canonical DBZ Workflows artifacts", prompt)
+        launch_monitor.assert_called_once()
+
+    def test_workflow_adapter_cancel_and_release_preserve_owned_worktrees(self) -> None:
+        pane = "pane:workflow-control"
+        active_task = "dbzw-1234567890123456789"
+        done_task = "dbzw-abcdefabcdefabcdefa"
+        worktree = str(Path(self.temporary.name) / "preserved-ticket-worktree")
+        CREW.write_json(
+            CREW.state_path(pane),
+            {
+                "main_pane": pane,
+                "queue": [],
+                "workers": {
+                    active_task: {
+                        "status": "running",
+                        "tab": "tab:active",
+                        "principal_session_id": "session-test",
+                        "workflow_adapter": True,
+                        "worktree_managed": False,
+                        "worktree": worktree,
+                        "branch": "dbz-tickets/WF-0001/T-0001-active",
+                    },
+                    done_task: {
+                        "status": "done",
+                        "tab": "tab:done",
+                        "workflow_adapter": True,
+                        "worktree_managed": False,
+                        "worktree": worktree,
+                        "branch": "dbz-tickets/WF-0001/T-0002-done",
+                    },
+                },
+            },
+        )
+        pane_value = {"pane_id": pane}
+        with (
+            mock.patch.object(CREW, "current_pane", return_value=pane_value),
+            mock.patch.object(CREW, "command", return_value=completed()) as invoked,
+            mock.patch("builtins.print"),
+        ):
+            CREW.cancel(argparse.Namespace(task_id=active_task, reason="Coordinator cancelled the wave"))
+            CREW.release(argparse.Namespace(task_id=done_task))
+
+        state = json.loads(CREW.state_path(pane).read_text(encoding="utf-8"))
+        self.assertEqual(state["workers"][active_task]["status"], "failed")
+        self.assertNotIn(done_task, state["workers"])
+        self.assertEqual(
+            CREW.result_path(pane, active_task).read_text(encoding="utf-8").splitlines()[0],
+            "DBZ-CREW RESULT: failed",
+        )
+        self.assertEqual(
+            [call.args[0] for call in invoked.call_args_list],
+            [["herdr", "tab", "close", "tab:active"], ["herdr", "tab", "close", "tab:done"]],
+        )
+        self.assertFalse(Path(worktree).exists())
+        events = list(CREW.event_directory("session-test").glob("*.json"))
+        self.assertEqual(len(events), 1)
+        event = json.loads(events[0].read_text(encoding="utf-8"))
+        self.assertEqual(event["status"], "failed")
+        self.assertIn("coordinator adapter will normalize", event["message"])
+        self.assertIn("do not use DBZ Crew rebase, integrate, or cleanup", event["message"])
 
     def test_completion_updates_are_locked_and_event_files_are_private(self) -> None:
         pane = "pane:main"
