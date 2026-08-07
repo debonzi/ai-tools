@@ -7,13 +7,13 @@ endpoint directly.
 ## Behavior
 
 When an OpenAI Codex model is active, the extension publishes a right-aligned,
-dim `cusage` widget below the editor containing the remaining quota, reset time,
-and available/usable reset credits. The widget occupies its own layout row and
-does not replace or overlap Pi's footer. It refreshes on session start, model
+dim Codex usage widget below the editor containing the remaining quota, reset
+time, and available/usable reset credits. The widget occupies its own layout row
+and does not replace or overlap Pi's footer. It refreshes on session start, model
 changes, and the configured interval.
 
-Run `/cusage` to force a fresh query and display a detailed, non-persistent TUI
-notification. The report includes every returned limit group, even when the
+Run `/usage-codex` to force a fresh query and display a detailed, non-persistent
+TUI notification. The report includes every returned limit group, even when the
 footer is configured to show only the selected model.
 
 The temporary command and widget key intentionally differ from `pi-usage`, so
@@ -36,7 +36,7 @@ Project values override global values. Copy `config.example.json` to the desired
 ```
 
 - `showOtherModels`: include non-selected model limits in the widget. The
-  `/cusage` report always includes them.
+  `/usage-codex` report always includes them.
 - `refreshIntervalMinutes`: automatic refresh interval from 1 to 1440 minutes.
 
 Missing files use defaults. Invalid values fall back to defaults and produce a warning.

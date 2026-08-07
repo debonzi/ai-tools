@@ -18,7 +18,10 @@ import {
 const PROVIDER_ID = "openai-codex";
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const OFFICIAL_ORIGIN = "https://chatgpt.com";
-const WIDGET_KEY = "cusage";
+const COMMAND_NAME = "usage-codex";
+const COMMAND_INVOCATION = `/${COMMAND_NAME}`;
+const WIDGET_KEY = "codex-usage";
+const WIDGET_LABEL = "codex usage";
 const QUERY_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 
@@ -97,7 +100,7 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 		refreshTimer = setTimeout(() => {
 			refreshTimer = undefined;
 			void refresh(ctx, true).catch(() => {
-				if (sessionActive) safeSetDisplay(ctx, "cusage error");
+				if (sessionActive) safeSetDisplay(ctx, `${WIDGET_LABEL} error`);
 			});
 		}, config.refreshIntervalMinutes * 60_000);
 		refreshTimer.unref?.();
@@ -122,7 +125,9 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 			generation === currentGeneration &&
 			ctx.model?.provider === PROVIDER_ID &&
 			modelIdentity(ctx.model) === identity;
-		if (successfulModelIdentity !== identity) safeSetDisplay(ctx, "cusage checking");
+		if (successfulModelIdentity !== identity) {
+			safeSetDisplay(ctx, `${WIDGET_LABEL} checking`);
+		}
 
 		try {
 			const auth = await resolveRuntimeAuth(ctx, model, fingerprintSalt);
@@ -154,10 +159,10 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 		} catch (error) {
 			if (isAbortError(error) || isStaleContextError(error)) return { status: "cancelled" };
 			if (error instanceof UsageAuthError) {
-				safeSetDisplay(ctx, "cusage auth error");
+				safeSetDisplay(ctx, `${WIDGET_LABEL} auth error`);
 				return { status: "auth-error" };
 			}
-			safeSetDisplay(ctx, "cusage error");
+			safeSetDisplay(ctx, `${WIDGET_LABEL} error`);
 			return { status: "query-error" };
 		} finally {
 			if (activeController === controller) activeController = undefined;
@@ -165,17 +170,20 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 		}
 	};
 
-	pi.registerCommand("cusage", {
+	pi.registerCommand(COMMAND_NAME, {
 		description: "Show OpenAI Codex usage for the active Pi account",
 		handler: async (args, ctx) => {
 			if (args.trim()) {
-				ctx.ui.notify("/cusage does not accept arguments.", "warning");
+				ctx.ui.notify(`${COMMAND_INVOCATION} does not accept arguments.`, "warning");
 				return;
 			}
 			if (ctx.mode !== "tui") return;
 			const model = activeCodexModel(ctx);
 			if (!model) {
-				ctx.ui.notify("/cusage requires an active OpenAI Codex model.", "warning");
+				ctx.ui.notify(
+					`${COMMAND_INVOCATION} requires an active OpenAI Codex model.`,
+					"warning",
+				);
 				return;
 			}
 
