@@ -14,7 +14,7 @@ Package versions and releases are independent. There is no aggregate package tha
 
 ## Install from npm
 
-Review package source before installation: Pi extensions execute code and skills can direct the agent to run bundled scripts.
+This repository defines the npm package identities and release configuration, but it does not establish current registry publication. When a selected package is available on npm, review its source before installation: Pi extensions execute code and skills can direct the agent to run bundled scripts.
 
 Install only the packages you want:
 
@@ -66,6 +66,47 @@ The former `@debonzi/dbz-ai-tools` package cannot be migrated automatically into
 7. Run `/reload` or restart Pi when appropriate.
 
 Removing the former package does not remove a separately installed Herdr Pi integration.
+
+## Migrate from the former standalone skills package
+
+The standalone skills package and its skills have new Pi identities:
+
+| Former identity | DB11 replacement |
+| --- | --- |
+| `@debonzi/dbz-skills` | `@debonzi/db11-skills` |
+| `dbz-issues` / `/skill:dbz-issues` | `db11-issues` / `/skill:db11-issues` |
+| `dbz-spec` / `/skill:dbz-spec` | `db11-spec` / `/skill:db11-spec` |
+
+There are no temporary aliases for the former package or skill names. Migrate explicitly after the DB11 npm package is available:
+
+1. Run `pi list` in each relevant project. Under `User packages` (global) and `Project packages` (project-local), find the former source and copy the source value before any `(filtered)` status marker, including an npm version or Git ref when present. For a local source, use the resolved absolute path that Pi prints below it when removing; a relative local source in settings is not necessarily relative to the shell directory. If the package exists in both scopes, remove both entries separately.
+2. Pass the copied npm or Git source, or the resolved local path, to `pi remove`, using `-l` only for a project-local entry. For the common unpinned npm source, the commands are:
+
+   ```sh
+   # Global installation
+   pi remove npm:@debonzi/dbz-skills
+
+   # Project-local installation
+   pi remove npm:@debonzi/dbz-skills -l
+   ```
+
+   Use these literal commands only when `pi list` reports `npm:@debonzi/dbz-skills`; otherwise substitute the exact reported source.
+3. Install the DB11 npm package in the intended scope:
+
+   ```sh
+   # Global installation
+   pi install npm:@debonzi/db11-skills
+
+   # Project-local installation
+   pi install npm:@debonzi/db11-skills -l
+   ```
+
+4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices that refer to the former package or skill identities do not transfer automatically. Configure `db11-issues` and `db11-spec` explicitly where needed; project overrides can still affect a global installation.
+5. Run `/reload` in every running Pi session that should use the new package, or restart those sessions, after removal, installation, and filter changes.
+
+Existing Markdown issue registries remain compatible with `db11-issues`. The transient reservation filename changed from `.NNN.dbz-issues-reservation` to `.NNN.db11-issues-reservation` and has no cross-version compatibility guarantee.
+
+See the [`@debonzi/db11-skills` package guide](packages/db11-skills/README.md#migrate-from-the-former-dbz-package) for the package-specific procedure.
 
 ## Develop from source
 
