@@ -18,6 +18,8 @@ python3 <skill-directory>/scripts/dbz-crew <command> [arguments]
 
 Do not assume that `dbz-crew` is installed in `PATH`.
 
+Before the first dispatch, if any external prerequisite or the official Herdr Pi integration is missing, stop and ask the user to explicitly invoke `/skill:dbz-crew-setup`. Never run integration installation from this skill.
+
 ## Dispatch
 
 - Create exactly one worker for each independent task the user names. Do not split a task or create extra research, test, or rebase workers on your own.

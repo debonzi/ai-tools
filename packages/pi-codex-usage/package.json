@@ -1,0 +1,44 @@
+{
+  "name": "@debonzi/pi-codex-usage",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi extension that displays usage for the active OpenAI Codex account.",
+  "author": "debonzi",
+  "license": "MIT",
+  "homepage": "https://github.com/debonzi/dbz-ai-tools/tree/main/packages/pi-codex-usage#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/debonzi/dbz-ai-tools.git",
+    "directory": "packages/pi-codex-usage"
+  },
+  "bugs": {
+    "url": "https://github.com/debonzi/dbz-ai-tools/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "openai-codex",
+    "usage"
+  ],
+  "files": [
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "agents/pi/extensions/codex-usage/README.md",
+    "agents/pi/extensions/codex-usage/config.example.json",
+    "agents/pi/extensions/codex-usage/core.ts",
+    "agents/pi/extensions/codex-usage/index.ts"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./agents/pi/extensions/codex-usage/index.ts"
+    ]
+  }
+}

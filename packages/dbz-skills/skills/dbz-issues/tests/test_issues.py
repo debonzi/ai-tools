@@ -10,8 +10,9 @@ import tempfile
 import unittest
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = PROJECT_ROOT / "skills" / "dbz-issues" / "scripts" / "issues.py"
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
+SCRIPT = SKILL_ROOT / "scripts" / "issues.py"
 SPEC = importlib.util.spec_from_file_location("dbz_issues_cli", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 ISSUES = importlib.util.module_from_spec(SPEC)
@@ -38,7 +39,7 @@ class DbzIssuesTest(unittest.TestCase):
         command.extend(arguments)
         result = subprocess.run(
             command,
-            cwd=cwd or PROJECT_ROOT,
+            cwd=cwd or REPOSITORY_ROOT,
             capture_output=True,
             text=True,
             check=False,
@@ -95,7 +96,7 @@ class DbzIssuesTest(unittest.TestCase):
         self.assertEqual(list(actual.iterdir()), [])
 
     def test_existing_registry_is_compatible_and_ready_is_dependency_aware(self) -> None:
-        issues = ISSUES.load_registry(PROJECT_ROOT / "issues")
+        issues = ISSUES.load_registry(REPOSITORY_ROOT / "issues")
         self.assertEqual(len(issues), 12)
         self.assertEqual(
             [issue.number for issue in ISSUES.ready_issues(issues)],

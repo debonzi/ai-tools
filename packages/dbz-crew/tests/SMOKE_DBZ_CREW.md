@@ -1,6 +1,6 @@
 # DBZ Crew Smoke Test
 
-Run implementation checks from a clean `main` worktree inside a Herdr-managed Pi session after installing the Pi package, selecting DBZ Crew through `/skill:dbz-ai-tools-setup`, and installing the official Herdr Pi integration. Read-only checks intentionally cover dirty and non-main source worktrees.
+Run implementation checks from a clean `main` worktree inside a Herdr-managed Pi session after installing `@debonzi/dbz-crew`, running `/skill:dbz-crew-setup`, and installing the official Herdr Pi integration after explicit confirmation. Read-only checks intentionally cover dirty and non-main source worktrees.
 
 Resolve `<dbz-crew>` through the loaded skill as `python3 <dbz-crew-skill-directory>/scripts/dbz-crew`.
 
@@ -38,6 +38,6 @@ test ! -e ~/.local/bin/dbz-crew
 git status --short
 ```
 
-Confirm `pi list` includes `git:github.com/debonzi/dbz-ai-tools`, the configured package entry uses an allowlist, and no skill or DBZ Crew event-extension symlinks point into this checkout.
+Confirm `pi list` includes `npm:@debonzi/dbz-crew` and no skill or DBZ Crew event-extension symlinks point into this checkout. The bundled skill and extension must load together without package-filter edits.
 
 Installing or updating Herdr's Pi integration must not create files under `agents/pi/extensions/` in this repository.

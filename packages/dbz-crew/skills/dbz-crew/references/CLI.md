@@ -13,17 +13,17 @@ Initially verified with Pi 0.83.0 and Herdr 0.7.5. Package setup and preflight v
 
 ## Installation
 
-Install the DBZ AI Tools Pi package and run its explicit setup skill:
+Install the DBZ Crew Pi package and run its explicit setup skill:
 
 ```bash
-pi install git:github.com/debonzi/dbz-ai-tools
+pi install npm:@debonzi/dbz-crew
 ```
 
 ```text
-/skill:dbz-ai-tools-setup
+/skill:dbz-crew-setup
 ```
 
-When DBZ Crew is selected, setup validates its prerequisites and can run `herdr integration install pi` after explicit confirmation. Reload or restart an already running Pi session after setup.
+The setup skill validates DBZ Crew prerequisites and can run `herdr integration install pi` after explicit confirmation. Reload or restart an already running Pi session after setup.
 
 ## Commands
 
@@ -72,10 +72,10 @@ Completion events are delivered only to the original Pi session and use follow-u
 ## Validation
 
 ```bash
-python3 -m unittest discover -s skills/dbz-crew/tests -v
-TZ=UTC node --test agents/pi/extensions/dbz-crew-events/index.test.ts
+python3 -m unittest discover -s packages/dbz-crew/skills/dbz-crew/tests -v
+TZ=UTC node --test packages/dbz-crew/agents/pi/extensions/dbz-crew-events/index.test.ts
 ```
 
-See the package setup tests in `skills/dbz-ai-tools-setup/tests/`.
+The explicit setup workflow is validated by the repository structure tests in `tests/test_package.py`.
 
 The manual Pi checklist is in [`tests/SMOKE_DBZ_CREW.md`](../../../tests/SMOKE_DBZ_CREW.md).

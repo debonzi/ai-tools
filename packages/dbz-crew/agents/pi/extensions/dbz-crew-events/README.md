@@ -13,5 +13,5 @@ The delivery guarantee is at least once across process interruption. Event IDs a
 ## Test
 
 ```bash
-TZ=UTC node --test agents/pi/extensions/dbz-crew-events/index.test.ts
+TZ=UTC node --test packages/dbz-crew/agents/pi/extensions/dbz-crew-events/index.test.ts
 ```

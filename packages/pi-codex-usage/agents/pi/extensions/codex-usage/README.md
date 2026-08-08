@@ -55,5 +55,5 @@ Missing files use defaults. Invalid values fall back to defaults and produce a w
 From the repository root:
 
 ```bash
-TZ=UTC node --test agents/pi/extensions/codex-usage/core.test.ts
+TZ=UTC node --test packages/pi-codex-usage/agents/pi/extensions/codex-usage/core.test.ts packages/pi-codex-usage/agents/pi/extensions/codex-usage/index.test.ts
 ```
