@@ -9,12 +9,15 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm run test:python && npm run test:extensions && npm run test:structure && npm run test:shell",
+    "test": "npm run test:behavior && npm run test:package && npm run test:install && npm run test:release && npm run test:shell",
+    "test:behavior": "npm run test:python && npm run test:extensions",
     "test:python": "python3 -m unittest discover -s packages/dbz-skills/skills/dbz-issues/tests -v && python3 -m unittest discover -s packages/dbz-crew/skills/dbz-crew/tests -v",
     "test:extensions": "TZ=UTC node --test packages/pi-codex-usage/agents/pi/extensions/codex-usage/core.test.ts packages/pi-codex-usage/agents/pi/extensions/codex-usage/index.test.ts packages/dbz-crew/agents/pi/extensions/dbz-crew-events/index.test.ts",
-    "test:structure": "python3 tests/test_package.py -v",
-    "test:shell": "tests/test-package-install.sh",
-    "pack:check": "npm pack --dry-run --ignore-scripts --workspaces",
+    "test:package": "python3 tests/test_package.py -v",
+    "test:install": "tests/test-package-install.sh",
+    "test:release": "python3 tests/test_release.py -v",
+    "test:shell": "bash -n tests/test-package-install.sh",
+    "pack:check": "python3 tests/test_package.py PackageArchiveTests -v",
     "check": "npm test"
   },
   "devDependencies": {

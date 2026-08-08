@@ -2,8 +2,6 @@
 
 This document defines the independent release contract for the three publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
 
-> **Implementation status:** Phase 3 must still update the current Makefile and GitHub release workflow to implement this contract. The command interface below is the required Phase 3 target, not an executable procedure in the current checkout. Do not create release tags or run the legacy release targets until that alignment is complete.
-
 ## Release identities
 
 Release code must use this fixed allowlist rather than deriving a path or npm identity from arbitrary input:
@@ -47,25 +45,27 @@ For each selected package:
 
 The workflow must reject lightweight tags, malformed versions, unknown selectors, name/version mismatches, and tags outside `main`. It must map the validated selector through fixed code to one workspace; it must not treat tag text as an arbitrary directory.
 
-## Target local interface for Phase 3
+## Local release interface
 
-Phase 3 must make the Makefile and this section identical. The intended staged flow is:
+Use the staged flow below. `release-prepare` requires at least one pending Changeset. The initial `0.1.0` publication of a package whose metadata is already committed starts at the package-specific `release-preflight` step instead.
 
 ```sh
-# Apply all pending Changesets, synchronize the lockfile, and inspect the result.
+# Apply all pending Changesets, synchronize the lockfile, inspect the result,
+# and commit only generated release metadata.
 make release-prepare
 make release-commit
 
 # Select one updated package and its exact manifest version.
+make release-info PACKAGE=dbz-crew VERSION=X.Y.Z
 make release-preflight PACKAGE=dbz-crew VERSION=X.Y.Z
 make release-check PACKAGE=dbz-crew VERSION=X.Y.Z
 make release-tag PACKAGE=dbz-crew VERSION=X.Y.Z
 make release-push PACKAGE=dbz-crew VERSION=X.Y.Z
 ```
 
-The package selector is required for every package-specific validation, tag, and push target. `release-tag` creates `dbz-crew-vX.Y.Z` in this example, and `release-push` atomically pushes `main` and that tag. Repeat the package-specific steps for another workspace updated by the same Changesets release commit.
+`release-info` is a local, non-mutating identity and manifest check. The package selector is required for every package-specific validation, tag, and push target. `release-tag` creates `dbz-crew-vX.Y.Z` in this example, and `release-push` atomically pushes `main` and that tag. Repeat the package-specific steps for another workspace updated by the same Changesets release commit.
 
-Before mutation, release tooling must require a clean local `main`, verify that it includes current remote `main`, and reject existing local or remote tags. `release-commit` must reject pre-staged or unrelated changes and accept only consumed Changesets, affected workspace `package.json` and `CHANGELOG.md` files, and the root `package-lock.json`.
+`release-prepare` and every package-specific tag or push flow must start from a clean local `main`, verify that it includes current remote `main`, and reject existing local or remote tags where applicable. `release-commit` intentionally runs after preparation has changed release metadata; it rejects pre-staged or unrelated changes and accepts only consumed Changesets, affected workspace `package.json` and `CHANGELOG.md` files, and the root `package-lock.json`.
 
 Do not use local `npm publish` as a fallback. If the selector mapping, archive validation, protected environment, trusted publishing, or provenance cannot be guaranteed, stop the release.
 

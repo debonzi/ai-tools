@@ -2,7 +2,10 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "dbz-skills-v*"
+      - "dbz-crew-v*"
+      - "pi-codex-usage-v*"
 
 permissions:
   contents: read
@@ -11,6 +14,12 @@ jobs:
   validate:
     name: Validate release
     runs-on: ubuntu-latest
+    outputs:
+      selector: ${{ steps.identity.outputs.selector }}
+      workspace: ${{ steps.identity.outputs.workspace }}
+      npm_name: ${{ steps.identity.outputs.npm_name }}
+      version: ${{ steps.identity.outputs.version }}
+      package_url: ${{ steps.identity.outputs.package_url }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -20,30 +29,58 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - name: Verify release tag
+      - name: Verify release identity and main ancestry
+        id: identity
         env:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           test "$(git cat-file -t "$GITHUB_REF")" = tag
 
-          version="$(node -p "require('./package.json').version")"
-          test "$TAG" = "v$version"
+          RELEASE_TAG="$TAG"
+          identity="$(python3 scripts/release_identity.py \
+            --tag "$RELEASE_TAG" \
+            --format shell \
+            --verify-manifest)"
+          eval "$identity"
+          test "$RELEASE_TAG" = "$TAG"
+
+          NPM_PACKAGE="$NPM_PACKAGE" VERSION="$VERSION" node - "$WORKSPACE/package.json" <<'NODE'
+          const fs = require("node:fs");
+          const manifest = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          if (manifest.name !== process.env.NPM_PACKAGE) {
+            throw new Error(`Selected package name ${manifest.name} does not match ${process.env.NPM_PACKAGE}`);
+          }
+          if (manifest.version !== process.env.VERSION) {
+            throw new Error(`Selected package version ${manifest.version} does not match ${process.env.VERSION}`);
+          }
+          if (manifest.publishConfig?.access !== "public") {
+            throw new Error("Selected package is not configured for public publication");
+          }
+          NODE
 
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          tag_commit="$(git rev-list -n 1 "$GITHUB_REF")"
+          tag_commit="$(git rev-parse "$GITHUB_REF^{}")"
           git merge-base --is-ancestor "$tag_commit" origin/main
+
+          {
+            printf 'selector=%s\n' "$PACKAGE_SELECTOR"
+            printf 'workspace=%s\n' "$WORKSPACE"
+            printf 'npm_name=%s\n' "$NPM_PACKAGE"
+            printf 'version=%s\n' "$VERSION"
+            printf 'package_url=%s\n' "$PACKAGE_URL"
+          } >> "$GITHUB_OUTPUT"
       - run: npm ci
       - run: npm run check
       - run: npm run pack:check
 
   publish:
-    name: Publish npm package
+    name: Publish ${{ needs.validate.outputs.npm_name }}
     needs: validate
     runs-on: ubuntu-latest
     environment:
       name: npm
-      url: https://www.npmjs.com/package/@debonzi/dbz-ai-tools
+      url: ${{ needs.validate.outputs.package_url }}
     permissions:
       contents: read
       id-token: write
@@ -58,7 +95,8 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
       - run: npm ci
-      - name: Publish with provenance
+      - name: Publish validated workspace with provenance
+        working-directory: ${{ needs.validate.outputs.workspace }}
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}

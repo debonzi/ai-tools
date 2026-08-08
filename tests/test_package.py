@@ -1,49 +1,76 @@
 from __future__ import annotations
 
+import io
 import json
+from pathlib import Path, PurePosixPath
 import re
+import stat
+import subprocess
+import tarfile
+import tempfile
 import unittest
-from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "packages"
 EXPECTED_WORKSPACES = {
-    "dbz-skills": "@debonzi/dbz-skills",
-    "dbz-crew": "@debonzi/dbz-crew",
-    "pi-codex-usage": "@debonzi/pi-codex-usage",
-}
-EXPECTED_FILES = {
     "dbz-skills": {
-        "README.md",
-        "LICENSE",
-        "CHANGELOG.md",
-        "skills/dbz-issues/SKILL.md",
-        "skills/dbz-issues/scripts/issues.py",
-        "skills/dbz-spec/SKILL.md",
-        "skills/dbz-spec/agents/openai.yaml",
+        "name": "@debonzi/dbz-skills",
+        "pi": {"skills": ["./skills"]},
+        "peers": {},
+        "files": {
+            "README.md",
+            "LICENSE",
+            "CHANGELOG.md",
+            "skills/dbz-issues/SKILL.md",
+            "skills/dbz-issues/scripts/issues.py",
+            "skills/dbz-spec/SKILL.md",
+            "skills/dbz-spec/agents/openai.yaml",
+        },
     },
     "dbz-crew": {
-        "README.md",
-        "LICENSE",
-        "CHANGELOG.md",
-        "skills/dbz-crew/SKILL.md",
-        "skills/dbz-crew/references/CLI.md",
-        "skills/dbz-crew/scripts/dbz-crew",
-        "skills/dbz-crew-setup/SKILL.md",
-        "agents/pi/extensions/dbz-crew-events/README.md",
-        "agents/pi/extensions/dbz-crew-events/index.ts",
+        "name": "@debonzi/dbz-crew",
+        "pi": {
+            "skills": ["./skills"],
+            "extensions": ["./agents/pi/extensions/dbz-crew-events/index.ts"],
+        },
+        "peers": {"@earendil-works/pi-coding-agent": "*"},
+        "files": {
+            "README.md",
+            "LICENSE",
+            "CHANGELOG.md",
+            "skills/dbz-crew/SKILL.md",
+            "skills/dbz-crew/references/CLI.md",
+            "skills/dbz-crew/scripts/dbz-crew",
+            "skills/dbz-crew-setup/SKILL.md",
+            "agents/pi/extensions/dbz-crew-events/README.md",
+            "agents/pi/extensions/dbz-crew-events/index.ts",
+        },
     },
     "pi-codex-usage": {
-        "README.md",
-        "LICENSE",
-        "CHANGELOG.md",
-        "agents/pi/extensions/codex-usage/README.md",
-        "agents/pi/extensions/codex-usage/config.example.json",
-        "agents/pi/extensions/codex-usage/core.ts",
-        "agents/pi/extensions/codex-usage/index.ts",
+        "name": "@debonzi/pi-codex-usage",
+        "pi": {"extensions": ["./agents/pi/extensions/codex-usage/index.ts"]},
+        "peers": {
+            "@earendil-works/pi-coding-agent": "*",
+            "@earendil-works/pi-tui": "*",
+        },
+        "files": {
+            "README.md",
+            "LICENSE",
+            "CHANGELOG.md",
+            "agents/pi/extensions/codex-usage/README.md",
+            "agents/pi/extensions/codex-usage/config.example.json",
+            "agents/pi/extensions/codex-usage/core.ts",
+            "agents/pi/extensions/codex-usage/index.ts",
+        },
     },
 }
-MUTATING_LIFECYCLE_SCRIPTS = {
+EXPECTED_SKILL_NAMES = {"dbz-issues", "dbz-spec", "dbz-crew", "dbz-crew-setup"}
+EXECUTABLE_PATHS = {
+    "dbz-skills": {"skills/dbz-issues/scripts/issues.py"},
+    "dbz-crew": {"skills/dbz-crew/scripts/dbz-crew"},
+    "pi-codex-usage": set(),
+}
+LIFECYCLE_SCRIPTS = {
     "preinstall",
     "install",
     "postinstall",
@@ -53,54 +80,70 @@ MUTATING_LIFECYCLE_SCRIPTS = {
     "prepack",
     "postpack",
 }
+RELATIVE_IMPORT = re.compile(r"\bfrom\s+['\"](\.[^'\"]+)['\"]")
+SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+LOCKFILE = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
 
 
 def load_manifest(path: Path) -> dict:
     return json.loads((path / "package.json").read_text(encoding="utf-8"))
 
 
+def locked_workspace_version(directory: str) -> str:
+    return LOCKFILE["packages"][f"packages/{directory}"]["version"]
+
+
+def assert_safe_relative(test: unittest.TestCase, value: str, label: str) -> PurePosixPath:
+    path = PurePosixPath(value)
+    test.assertFalse(path.is_absolute(), label)
+    test.assertNotIn("..", path.parts, label)
+    test.assertNotEqual(path, PurePosixPath("."), label)
+    return path
+
+
+def normalize_pack_json(output: str, expected_name: str) -> dict:
+    payload = json.loads(output)
+    candidates: list[dict] = []
+    if isinstance(payload, list):
+        candidates.extend(entry for entry in payload if isinstance(entry, dict))
+    elif isinstance(payload, dict):
+        if isinstance(payload.get("files"), list):
+            candidates.append(payload)
+        else:
+            candidates.extend(entry for entry in payload.values() if isinstance(entry, dict))
+    matches = [entry for entry in candidates if entry.get("name") == expected_name]
+    if len(matches) != 1:
+        raise AssertionError(
+            f"npm pack returned {len(matches)} records for {expected_name}: {payload!r}"
+        )
+    if not isinstance(matches[0].get("files"), list):
+        raise AssertionError(f"npm pack record has no files array: {matches[0]!r}")
+    return matches[0]
+
+
 class PackageManifestTests(unittest.TestCase):
     def test_root_is_a_private_workspace_coordinator(self) -> None:
         package = load_manifest(ROOT)
         self.assertEqual(package["name"], "dbz-ai-tools-workspace")
-        self.assertTrue(package["private"])
+        self.assertNotEqual(package["name"], "@debonzi/dbz-ai-tools")
+        self.assertIs(package["private"], True)
         self.assertEqual(package["type"], "module")
         self.assertEqual(package["workspaces"], ["packages/*"])
-        self.assertNotIn("version", package)
-        self.assertNotIn("pi", package)
-        self.assertNotIn("dependencies", package)
-        self.assertNotIn("peerDependencies", package)
+        for forbidden in ("version", "pi", "files", "publishConfig", "dependencies", "peerDependencies"):
+            self.assertNotIn(forbidden, package)
         self.assertEqual(
             {path.name for path in PACKAGES.iterdir() if (path / "package.json").is_file()},
             set(EXPECTED_WORKSPACES),
         )
 
     def test_publishable_manifests_have_exact_resource_boundaries(self) -> None:
-        expected_pi = {
-            "dbz-skills": {"skills": ["./skills"]},
-            "dbz-crew": {
-                "skills": ["./skills"],
-                "extensions": ["./agents/pi/extensions/dbz-crew-events/index.ts"],
-            },
-            "pi-codex-usage": {
-                "extensions": ["./agents/pi/extensions/codex-usage/index.ts"],
-            },
-        }
-        expected_peers = {
-            "dbz-skills": {},
-            "dbz-crew": {"@earendil-works/pi-coding-agent": "*"},
-            "pi-codex-usage": {
-                "@earendil-works/pi-coding-agent": "*",
-                "@earendil-works/pi-tui": "*",
-            },
-        }
-
-        for directory, name in EXPECTED_WORKSPACES.items():
-            with self.subTest(package=name):
+        for directory, expected in EXPECTED_WORKSPACES.items():
+            with self.subTest(package=expected["name"]):
                 package_root = PACKAGES / directory
                 package = load_manifest(package_root)
-                self.assertEqual(package["name"], name)
-                self.assertEqual(package["version"], "0.1.0")
+                self.assertEqual(package["name"], expected["name"])
+                self.assertEqual(package["version"], locked_workspace_version(directory))
+                self.assertRegex(package["version"], SEMVER)
                 self.assertNotIn("private", package)
                 self.assertIn("pi-package", package["keywords"])
                 self.assertEqual(package["publishConfig"], {"access": "public"})
@@ -112,17 +155,25 @@ class PackageManifestTests(unittest.TestCase):
                         "directory": f"packages/{directory}",
                     },
                 )
-                self.assertEqual(package["pi"], expected_pi[directory])
-                self.assertEqual(package.get("peerDependencies", {}), expected_peers[directory])
-                self.assertEqual(set(package["files"]), EXPECTED_FILES[directory])
-                self.assertTrue(MUTATING_LIFECYCLE_SCRIPTS.isdisjoint(package.get("scripts", {})))
+                self.assertEqual(package["pi"], expected["pi"])
+                self.assertEqual(package.get("peerDependencies", {}), expected["peers"])
+                self.assertEqual(set(package["files"]), expected["files"])
+                self.assertTrue(LIFECYCLE_SCRIPTS.isdisjoint(package.get("scripts", {})))
+
                 for relative in package["files"]:
-                    self.assertTrue((package_root / relative).is_file(), f"{name}: {relative}")
-                for resource_type in ("skills", "extensions"):
+                    path = assert_safe_relative(self, relative, f"{expected['name']}: {relative}")
+                    resolved = (package_root / path).resolve()
+                    self.assertTrue(resolved.is_relative_to(package_root.resolve()), relative)
+                    self.assertTrue(resolved.is_file(), f"{expected['name']}: {relative}")
+
+                for resource_type in ("skills", "extensions", "prompts", "themes"):
                     for relative in package["pi"].get(resource_type, []):
-                        resource = (package_root / relative).resolve()
-                        self.assertTrue(resource.is_relative_to(package_root.resolve()))
-                        self.assertTrue(resource.exists(), f"{name}: {relative}")
+                        path = assert_safe_relative(
+                            self, relative, f"{expected['name']} {resource_type}: {relative}"
+                        )
+                        resolved = (package_root / path).resolve()
+                        self.assertTrue(resolved.is_relative_to(package_root.resolve()), relative)
+                        self.assertTrue(resolved.exists(), f"{expected['name']}: {relative}")
 
     def test_every_workspace_skill_has_valid_unique_frontmatter(self) -> None:
         names: set[str] = set()
@@ -143,7 +194,8 @@ class PackageManifestTests(unittest.TestCase):
             self.assertNotIn(name, names)
             names.add(name)
 
-        self.assertEqual(names, {"dbz-crew", "dbz-crew-setup", "dbz-issues", "dbz-spec"})
+        self.assertEqual(names, EXPECTED_SKILL_NAMES)
+        self.assertFalse(any(path.parent.name == "dbz-ai-tools-setup" for path in PACKAGES.rglob("SKILL.md")))
 
     def test_setup_is_explicit_scoped_and_confirmation_gated(self) -> None:
         setup = (PACKAGES / "dbz-crew/skills/dbz-crew-setup/SKILL.md").read_text(
@@ -169,12 +221,119 @@ class PackageManifestTests(unittest.TestCase):
         self.assertFalse((ROOT / "skills/dbz-ai-tools-setup/scripts/configure.py").exists())
 
     def test_bundled_python_entry_points_remain_executable(self) -> None:
-        for path in (
-            PACKAGES / "dbz-skills/skills/dbz-issues/scripts/issues.py",
-            PACKAGES / "dbz-crew/skills/dbz-crew/scripts/dbz-crew",
-        ):
-            self.assertTrue(path.is_file(), path)
-            self.assertTrue(path.stat().st_mode & 0o100, path)
+        for directory, paths in EXECUTABLE_PATHS.items():
+            for relative in paths:
+                path = PACKAGES / directory / relative
+                with self.subTest(path=path):
+                    self.assertTrue(path.is_file())
+                    self.assertTrue(path.stat().st_mode & stat.S_IXUSR)
+
+
+class PackageArchiveTests(unittest.TestCase):
+    def pack_workspace(self, directory: str, expected: dict) -> tuple[dict, Path, tempfile.TemporaryDirectory]:
+        temporary = tempfile.TemporaryDirectory(prefix=f"pack-{directory}-")
+        self.addCleanup(temporary.cleanup)
+        destination = Path(temporary.name)
+        result = subprocess.run(
+            [
+                "npm",
+                "pack",
+                "--json",
+                "--ignore-scripts",
+                "--pack-destination",
+                str(destination),
+            ],
+            cwd=PACKAGES / directory,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        details = normalize_pack_json(result.stdout, expected["name"])
+        archive = destination / details["filename"]
+        self.assertTrue(archive.is_file(), archive)
+        return details, archive, temporary
+
+    def test_each_workspace_has_an_exact_minimal_archive(self) -> None:
+        all_expected = {
+            directory: {"package.json", *expected["files"]}
+            for directory, expected in EXPECTED_WORKSPACES.items()
+        }
+        for directory, expected in EXPECTED_WORKSPACES.items():
+            with self.subTest(package=expected["name"]):
+                details, archive, _temporary = self.pack_workspace(directory, expected)
+                self.assertEqual(details["version"], locked_workspace_version(directory))
+                reported = {entry["path"]: entry for entry in details["files"]}
+                self.assertEqual(set(reported), all_expected[directory])
+
+                with tarfile.open(archive, "r:gz") as tar:
+                    members = {
+                        member.name.removeprefix("package/"): member
+                        for member in tar.getmembers()
+                        if member.isfile()
+                    }
+                    self.assertEqual(set(members), all_expected[directory])
+                    self.assertFalse(any(member.issym() or member.islnk() for member in tar.getmembers()))
+                    manifest_member = tar.extractfile("package/package.json")
+                    self.assertIsNotNone(manifest_member)
+                    packed_manifest = json.load(io.TextIOWrapper(manifest_member, encoding="utf-8"))
+
+                self.assertEqual(packed_manifest["name"], expected["name"])
+                self.assertEqual(packed_manifest["version"], locked_workspace_version(directory))
+                self.assertEqual(packed_manifest["pi"], expected["pi"])
+                self.assertEqual(set(packed_manifest["files"]), expected["files"])
+
+                for path in all_expected[directory]:
+                    expected_executable = path in EXECUTABLE_PATHS[directory]
+                    self.assertEqual(bool(reported[path]["mode"] & stat.S_IXUSR), expected_executable, path)
+                    self.assertEqual(bool(members[path].mode & stat.S_IXUSR), expected_executable, path)
+
+                prohibited_parts = {
+                    ".changeset",
+                    ".drafts",
+                    ".github",
+                    "__pycache__",
+                    "cache",
+                    "caches",
+                    "credentials",
+                    "histories",
+                    "history",
+                    "sessions",
+                    "tests",
+                }
+                for path in members:
+                    lowered = path.lower()
+                    parts = {part.lower() for part in PurePosixPath(path).parts}
+                    self.assertTrue(parts.isdisjoint(prohibited_parts), path)
+                    self.assertFalse(lowered.endswith((".pyc", ".test.ts")), path)
+                    self.assertNotIn("smoke_dbz_crew.md", lowered)
+                    self.assertNotIn("trust.json", lowered)
+                    self.assertNotIn("dbz-ai-tools-setup", lowered)
+                    self.assertNotIn("configure.py", lowered)
+
+                other_files = set().union(
+                    *(paths for owner, paths in all_expected.items() if owner != directory)
+                )
+                self.assertTrue(set(members).isdisjoint(other_files - all_expected[directory]))
+                self.assert_runtime_imports_are_packed(directory, set(members))
+                self.assert_manifest_resources_are_packed(packed_manifest, set(members))
+
+    def assert_runtime_imports_are_packed(self, directory: str, packed: set[str]) -> None:
+        package_root = PACKAGES / directory
+        for source_path in sorted(path for path in packed if path.endswith((".ts", ".js"))):
+            source = (package_root / source_path).read_text(encoding="utf-8")
+            for imported in RELATIVE_IMPORT.findall(source):
+                resolved = (PurePosixPath(source_path).parent / imported)
+                normalized = PurePosixPath(*[part for part in resolved.parts if part != "."])
+                self.assertNotIn("..", normalized.parts, f"{source_path}: {imported}")
+                self.assertIn(normalized.as_posix(), packed, f"{source_path}: {imported}")
+
+    def assert_manifest_resources_are_packed(self, manifest: dict, packed: set[str]) -> None:
+        for extension in manifest["pi"].get("extensions", []):
+            self.assertIn(PurePosixPath(extension).as_posix().removeprefix("./"), packed)
+        for skill_root in manifest["pi"].get("skills", []):
+            prefix = PurePosixPath(skill_root).as_posix().removeprefix("./").rstrip("/") + "/"
+            self.assertTrue(any(path.startswith(prefix) and path.endswith("/SKILL.md") for path in packed))
 
 
 if __name__ == "__main__":
