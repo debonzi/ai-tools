@@ -74,7 +74,6 @@ Completion events are delivered only to the original Pi session and use follow-u
 ```bash
 python3 -m unittest discover -s skills/dbz-crew/tests -v
 TZ=UTC node --test agents/pi/extensions/dbz-crew-events/index.test.ts
-tests/test-install.sh
 ```
 
 See the package setup tests in `skills/dbz-ai-tools-setup/tests/`.
