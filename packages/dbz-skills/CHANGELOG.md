@@ -2,4 +2,5 @@
 
 ## 0.1.0
 
-- Prepare the initial independent package containing the `dbz-issues` and `dbz-spec` skills.
+- Establish the first independent package line for the `dbz-issues` and `dbz-spec` skills.
+- Keep the Python issue-management CLI bundled with `dbz-issues` and distribute both skills as one multi-skill catalog.

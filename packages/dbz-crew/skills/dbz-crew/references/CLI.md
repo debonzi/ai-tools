@@ -13,17 +13,25 @@ Initially verified with Pi 0.83.0 and Herdr 0.7.5. Package setup and preflight v
 
 ## Installation
 
-Install the DBZ Crew Pi package and run its explicit setup skill:
+Install the published DBZ Crew Pi package:
 
 ```bash
 pi install npm:@debonzi/dbz-crew
 ```
 
+For development from the repository root, install its local workspace instead:
+
+```bash
+pi install ./packages/dbz-crew
+```
+
+Then explicitly run the setup skill when prerequisite or integration guidance is needed:
+
 ```text
 /skill:dbz-crew-setup
 ```
 
-The setup skill validates DBZ Crew prerequisites and can run `herdr integration install pi` after explicit confirmation. Reload or restart an already running Pi session after setup.
+The setup skill validates DBZ Crew prerequisites and presents a complete plan before any mutation. It can run `herdr integration install pi` only after separate explicit confirmation. It does not install unrelated software, change trust decisions, or edit package filters. Reload or restart an already running Pi session after setup.
 
 ## Commands
 
@@ -71,11 +79,13 @@ Completion events are delivered only to the original Pi session and use follow-u
 
 ## Validation
 
+From the `packages/dbz-crew` workspace in a full repository source checkout:
+
 ```bash
-python3 -m unittest discover -s packages/dbz-crew/skills/dbz-crew/tests -v
-TZ=UTC node --test packages/dbz-crew/agents/pi/extensions/dbz-crew-events/index.test.ts
+python3 -m unittest discover -s skills/dbz-crew/tests -v
+TZ=UTC node --test agents/pi/extensions/dbz-crew-events/index.test.ts
 ```
 
-The explicit setup workflow is validated by the repository structure tests in `tests/test_package.py`.
+These deterministic tests do not require live Herdr access. The explicit setup workflow is also covered by the repository's [package structure suite](https://github.com/debonzi/dbz-ai-tools/blob/main/tests/test_package.py).
 
-The manual Pi checklist is in [`tests/SMOKE_DBZ_CREW.md`](../../../tests/SMOKE_DBZ_CREW.md).
+The [manual Pi smoke test](https://github.com/debonzi/dbz-ai-tools/blob/main/packages/dbz-crew/tests/SMOKE_DBZ_CREW.md) is repository-only.

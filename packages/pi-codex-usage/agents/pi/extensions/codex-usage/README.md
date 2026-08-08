@@ -14,10 +14,10 @@ changes, and the configured interval.
 
 Run `/usage-codex` to force a fresh query and display a detailed, non-persistent
 TUI notification. The report includes every returned limit group, even when the
-footer is configured to show only the selected model.
+widget is configured to show only the selected model.
 
-The temporary command and widget key intentionally differ from `pi-usage`, so
-both extensions can remain loaded during comparison.
+The `/usage-codex` command and `codex-usage` widget key intentionally differ
+from `pi-usage`, so both extensions can remain loaded during comparison.
 
 ## Configuration
 
@@ -52,8 +52,8 @@ Missing files use defaults. Invalid values fall back to defaults and produce a w
 
 ## Test
 
-From the repository root:
+From the `packages/pi-codex-usage` workspace in a full repository source checkout:
 
 ```bash
-TZ=UTC node --test packages/pi-codex-usage/agents/pi/extensions/codex-usage/core.test.ts packages/pi-codex-usage/agents/pi/extensions/codex-usage/index.test.ts
+TZ=UTC node --test agents/pi/extensions/codex-usage/core.test.ts agents/pi/extensions/codex-usage/index.test.ts
 ```

@@ -2,16 +2,20 @@
 
 A minimal Pi adapter for DBZ Crew completion delivery. The CLI bundled with the `dbz-crew` skill writes a private event addressed to the original Pi session; this extension recovers pending events and injects them with `deliverAs: "followUp"` and `triggerTurn: true`.
 
-The extension is inert outside an interactive Herdr-managed Pi process. It does not dispatch workers, manage Git, or replace the shared DBZ Crew skill.
+The extension is an intentionally required part of `@debonzi/dbz-crew`, not a standalone distribution. It shares the skill's private state, event schema, validation rules, and lifecycle. It is inert outside an interactive Herdr-managed Pi process and does not dispatch workers, manage Git, install Herdr integration, or replace the DBZ Crew skill.
 
-## State
+## State and delivery
 
-Events and readiness markers always use `~/.local/state/dbz-crew`; `DBZ_CREW_STATE_DIR` and `XDG_STATE_HOME` do not change this location. Events are validated against the current Pi session and may reference only regular, current-user result files inside DBZ Crew's private results directory.
+Events and readiness markers always use `~/.local/state/dbz-crew`; `DBZ_CREW_STATE_DIR` and `XDG_STATE_HOME` do not change this location. Events are accepted only for the current Pi session and may reference only regular, current-user result files inside DBZ Crew's private results directory.
 
 The delivery guarantee is at least once across process interruption. Event IDs and session entries suppress duplicate delivery during normal operation and after completed acknowledgement.
 
 ## Test
 
+From the `packages/dbz-crew` workspace in a full repository source checkout:
+
 ```bash
-TZ=UTC node --test packages/dbz-crew/agents/pi/extensions/dbz-crew-events/index.test.ts
+TZ=UTC node --test agents/pi/extensions/dbz-crew-events/index.test.ts
 ```
+
+This deterministic test uses temporary local state and does not require live Herdr access.

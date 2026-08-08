@@ -1,116 +1,97 @@
-# DBZ AI Tools
+# DBZ AI Tools package catalog
 
-Skills, extensions, tools, and configuration for the Pi coding agent.
+This repository is the private workspace coordinator and source catalog for three independently installable [Pi](https://github.com/earendil-works/pi-mono) packages. The repository root is not a Pi package and is never published.
 
-## Contents
+## Packages
 
-- `skills/`: Agent Skills packages, including their scripts and references.
-- `agents/pi/`: Pi-specific extensions and system instructions.
-- `issues/`: local file-based issues intended for AI-agent workflows.
+| Package | Included resources | Intended use |
+| --- | --- | --- |
+| [`@debonzi/dbz-skills`](packages/dbz-skills/README.md) | `dbz-issues` and `dbz-spec` skills | Local issue registries and implementation-ready specification workflows |
+| [`@debonzi/dbz-crew`](packages/dbz-crew/README.md) | DBZ Crew skill, bundled CLI and references, explicit setup skill, and required event extension | Explicit delegation from Pi to Herdr-managed Pi workers |
+| [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/README.md) | Codex Usage Pi extension | OpenAI Codex quota display and on-demand usage reports |
 
-## Install the Pi package
+Package versions and releases are independent. There is no aggregate package that installs all three.
 
-Requirements: Pi 0.83.0 or newer and Python 3. DBZ Crew additionally requires Git and Herdr with Pi worker support.
+## Install from npm
 
-Install the public package from npm:
+Review package source before installation: Pi extensions execute code and skills can direct the agent to run bundled scripts.
 
-```bash
-pi install npm:@debonzi/dbz-ai-tools
+Install only the packages you want:
+
+```sh
+pi install npm:@debonzi/dbz-skills
+pi install npm:@debonzi/dbz-crew
+pi install npm:@debonzi/pi-codex-usage
 ```
 
-Pin a specific version when reproducibility is more important than automatic package updates:
+`pi install` installs a complete package and enables its declared resources by default. It writes to global settings unless `-l` is supplied for a project-local installation. Use `pi config` to control globally loaded resources, or `pi config -l` to start in project overrides with inherited global resources shown dimmed.
 
-```bash
-pi install npm:@debonzi/dbz-ai-tools@0.1.0
+`@debonzi/dbz-skills` is intentionally a multi-skill catalog: installing it makes both independently discoverable skills available. DBZ Crew has the opposite boundary for a cohesive feature: its skill, CLI, setup flow, and event extension ship together because they share a private state, event, and lifecycle contract. A script used only through a skill remains bundled with that skill.
+
+If Pi is already running after an install or configuration change, run `/reload` or restart Pi. Unpinned packages can be updated with `pi update --extensions`.
+
+## Migrate from the former aggregate package
+
+The former `@debonzi/dbz-ai-tools` package cannot be migrated automatically into three npm identities. Preserve any intentional local settings and choose the new package or packages explicitly.
+
+1. Run `pi list`, `pi config`, and, when relevant, `pi config -l` to inspect the old installation and determine which resources you use.
+2. Map those resources to the new packages:
+
+   | Former resources | New package |
+   | --- | --- |
+   | `dbz-issues`, `dbz-spec` | `@debonzi/dbz-skills` |
+   | `dbz-crew`, its setup flow, CLI, and event extension | `@debonzi/dbz-crew` |
+   | `codex-usage` | `@debonzi/pi-codex-usage` |
+
+3. Remove the old source that `pi list` reports:
+
+   ```sh
+   pi remove npm:@debonzi/dbz-ai-tools
+   ```
+
+   For a former rolling Git installation, remove that source instead:
+
+   ```sh
+   pi remove git:github.com/debonzi/dbz-ai-tools
+   ```
+
+4. Install only the new npm packages you selected using the commands above.
+5. Review the newly loaded resources with `pi config` or `pi config -l`. Old package filters do not transfer to the new package identities, and this repository does not edit user settings or filters automatically.
+6. If you installed DBZ Crew and need prerequisite or Herdr integration guidance, explicitly invoke:
+
+   ```text
+   /skill:dbz-crew-setup
+   ```
+
+7. Run `/reload` or restart Pi when appropriate.
+
+Removing the former package does not remove a separately installed Herdr Pi integration.
+
+## Develop from source
+
+From a clone of this repository, install a workspace by its explicit local path:
+
+```sh
+pi install ./packages/dbz-skills
+pi install ./packages/dbz-crew
+pi install ./packages/pi-codex-usage
 ```
 
-For a project-local package installation:
+Local paths reference the source workspaces directly. The private repository root is not installable, and Pi has no documented Git-subdirectory package selector; a Git installation of the repository root does not select one of these packages.
 
-```bash
-pi install -l npm:@debonzi/dbz-ai-tools
-```
+Install locked development dependencies and run the supported repository checks:
 
-Start or restart Pi, then run the explicit setup skill:
-
-```text
-/skill:dbz-ai-tools-setup
-```
-
-Setup lets you choose global or project-local resource filters, select the skills to enable, and optionally enable `codex-usage`. The setup skill always remains enabled. Selecting `dbz-crew` also enables `dbz-crew-events` and offers to run the separately confirmed official integration command:
-
-```bash
-herdr integration install pi
-```
-
-Finish with `/reload` or restart Pi. Package files are managed as one bundle; selection controls which resources Pi loads rather than which files are downloaded.
-
-Update unpinned packages with:
-
-```bash
-pi update --extensions
-```
-
-Existing allowlists keep skills introduced by an update disabled until `/skill:dbz-ai-tools-setup` is run again.
-
-Use `pi config` for Pi's native resource configuration UI and `pi remove npm:@debonzi/dbz-ai-tools` to remove the package. Removing the package does not uninstall the shared Herdr Pi integration.
-
-### Source installation and npm migration
-
-The default Git branch remains available for source-based testing:
-
-```bash
-pi install git:github.com/debonzi/dbz-ai-tools
-```
-
-Pi treats Git and npm sources as different packages. To migrate an existing rolling Git installation without loading both copies, remove the Git source before installing the npm package:
-
-```bash
-pi remove git:github.com/debonzi/dbz-ai-tools
-pi install npm:@debonzi/dbz-ai-tools
-```
-
-Run `/skill:dbz-ai-tools-setup` again to recreate the desired resource filters.
-
-## DBZ Crew
-
-DBZ Crew delegates explicitly requested tasks from Pi to Pi workers. Workers inherit the principal's provider, model, and thinking level. Strict clean-`main` checks protect implementation workers. Explicitly read-only workers may inspect dirty or non-main source worktrees through an isolated snapshot, with an opt-in live-worktree mode.
-
-The CLI is bundled at `skills/dbz-crew/scripts/dbz-crew`; no global `dbz-crew` executable is installed. Agents resolve and invoke it through the skill. See [`skills/dbz-crew/references/CLI.md`](skills/dbz-crew/references/CLI.md) for the command matrix and safety behavior.
-
-## Local issue management
-
-The portable `dbz-issues` skill manages Markdown issue registries under `issues/open/` and `issues/closed/`. Its dependency-aware Python CLI can initialize a selected registry, create and edit open issues, report actionable issues, and close completed work. Initialization and every mutation require an explicit user request; closed issues are terminal and immutable.
-
-## Codex usage configuration
-
-The managed package checkout must not be edited for local configuration. Optional `codex-usage` overrides live at:
-
-```text
-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/codex-usage.json
-.pi/codex-usage.json
-```
-
-Project overrides are loaded only for trusted projects. See [`agents/pi/extensions/codex-usage/README.md`](agents/pi/extensions/codex-usage/README.md).
-
-## Releases
-
-Published releases use Changesets, annotated Semantic Versioning tags, GitHub environment approval, and npm trusted publishing with provenance. Maintainers should follow [`docs/releasing.md`](docs/releasing.md); contributors should add a Changeset with `npx changeset` for every user-visible package change.
-
-## Security
-
-Pi packages run with the permissions of the local user. Review all skills, scripts, and extensions before installation. The package has no `install` or `postinstall` lifecycle script and never silently installs the Herdr integration or other software.
-
-Credentials and agent-generated state are intentionally excluded from this repository.
-
-## Validation
-
-Install the locked development dependencies and run the same checks used by CI and release validation:
-
-```bash
+```sh
 npm ci
 npm run check
 npm run pack:check
 ```
+
+See each package README for focused tests. Maintainers should also read the [independent release contract](docs/releasing.md), the [Changesets guidance](.changeset/README.md), and the [historical aggregate-package changelog](CHANGELOG.md).
+
+## Security
+
+No package has an install or postinstall lifecycle script. DBZ Crew never installs the Herdr integration without a complete plan and separate explicit confirmation. Credentials, sessions, histories, caches, trust decisions, and other machine state are excluded from the distributions.
 
 ## License
 

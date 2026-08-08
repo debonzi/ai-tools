@@ -2,4 +2,5 @@
 
 ## 0.1.0
 
-- Prepare the initial independent package for the Codex usage extension.
+- Establish the first independent package line for the Codex Usage Pi extension.
+- Rename the user command from `/cusage` to `/usage-codex` and centralize the command and widget identifiers before the initial independent release.

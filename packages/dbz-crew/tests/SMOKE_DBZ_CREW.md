@@ -40,4 +40,4 @@ git status --short
 
 Confirm `pi list` includes `npm:@debonzi/dbz-crew` and no skill or DBZ Crew event-extension symlinks point into this checkout. The bundled skill and extension must load together without package-filter edits.
 
-Installing or updating Herdr's Pi integration must not create files under `agents/pi/extensions/` in this repository.
+Installing or updating Herdr's Pi integration must not create files under the repository root's `agents/pi/extensions/` directory or modify either package workspace.
