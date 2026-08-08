@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.1.2/schema.json",
-  "changelog": ["@changesets/cli/changelog", { "repo": "debonzi/dbz-ai-tools" }],
+  "changelog": ["@changesets/cli/changelog", { "repo": "debonzi/db11-ai-tools" }],
   "commit": false,
   "fixed": [],
   "linked": [],

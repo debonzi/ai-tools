@@ -3,8 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - "dbz-skills-v*"
-      - "dbz-crew-v*"
+      - "db11-skills-v*"
+      - "db11-crew-v*"
       - "pi-codex-usage-v*"
 
 permissions:

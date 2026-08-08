@@ -17,8 +17,8 @@ sys.modules[SPEC.name] = RELEASE_IDENTITY
 SPEC.loader.exec_module(RELEASE_IDENTITY)
 
 EXPECTED = {
-    "dbz-skills": ("packages/dbz-skills", "@debonzi/dbz-skills"),
-    "dbz-crew": ("packages/dbz-crew", "@debonzi/dbz-crew"),
+    "db11-skills": ("packages/db11-skills", "@debonzi/db11-skills"),
+    "db11-crew": ("packages/db11-crew", "@debonzi/db11-crew"),
     "pi-codex-usage": ("packages/pi-codex-usage", "@debonzi/pi-codex-usage"),
 }
 
@@ -45,37 +45,43 @@ class ReleaseIdentityTests(unittest.TestCase):
         invalid_tags = (
             "v1.2.3",
             "dbz-ai-tools-v1.2.3",
+            "dbz-skills-v1.2.3",
+            "dbz-crew-v1.2.3",
             "unknown-v1.2.3",
-            "dbz-crew-v01.2.3",
-            "dbz-crew-v1.2",
-            "dbz-crew-v1.2.3-beta.1",
-            "dbz-crew-v1.2.3/../../root",
+            "db11-crew-v01.2.3",
+            "db11-crew-v1.2",
+            "db11-crew-v1.2.3-beta.1",
+            "db11-crew-v1.2.3/../../root",
         )
         for tag in invalid_tags:
             with self.subTest(tag=tag), self.assertRaises(RELEASE_IDENTITY.IdentityError):
                 RELEASE_IDENTITY.parse_tag(tag)
-        with self.assertRaises(RELEASE_IDENTITY.IdentityError):
-            RELEASE_IDENTITY.resolve_selector("dbz-ai-tools-workspace", "1.2.3")
+        for selector in ("dbz-ai-tools-workspace", "dbz-skills", "dbz-crew"):
+            with self.subTest(selector=selector), self.assertRaises(
+                RELEASE_IDENTITY.IdentityError
+            ):
+                RELEASE_IDENTITY.resolve_selector(selector, "1.2.3")
 
     def test_nonmutating_make_identity_check_validates_manifest_version(self) -> None:
         current_version = json.loads(
-            (ROOT / "packages/dbz-crew/package.json").read_text(encoding="utf-8")
+            (ROOT / "packages/db11-crew/package.json").read_text(encoding="utf-8")
         )["version"]
         valid = subprocess.run(
-            ["make", "release-info", "PACKAGE=dbz-crew", f"VERSION={current_version}"],
+            ["make", "release-info", "PACKAGE=db11-crew", f"VERSION={current_version}"],
             cwd=ROOT,
             capture_output=True,
             text=True,
             check=False,
         )
         self.assertEqual(valid.returncode, 0, valid.stderr or valid.stdout)
-        self.assertIn("workspace: packages/dbz-crew", valid.stdout)
-        self.assertIn(f"tag: dbz-crew-v{current_version}", valid.stdout)
+        self.assertIn("workspace: packages/db11-crew", valid.stdout)
+        self.assertIn(f"tag: db11-crew-v{current_version}", valid.stdout)
 
         for arguments in (
             ["PACKAGE=unknown", f"VERSION={current_version}"],
-            ["PACKAGE=dbz-crew", "VERSION=999.999.999"],
-            ["PACKAGE=dbz-crew", "VERSION=01.2.3"],
+            ["PACKAGE=dbz-crew", f"VERSION={current_version}"],
+            ["PACKAGE=db11-crew", "VERSION=999.999.999"],
+            ["PACKAGE=db11-crew", "VERSION=01.2.3"],
         ):
             with self.subTest(arguments=arguments):
                 result = subprocess.run(
@@ -98,6 +104,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         config = json.loads((ROOT / ".changeset/config.json").read_text(encoding="utf-8"))
         self.assertEqual(config["fixed"], [])
         self.assertEqual(config["linked"], [])
+        self.assertEqual(config["changelog"][1]["repo"], "debonzi/db11-ai-tools")
         for changeset in (ROOT / ".changeset").glob("*.md"):
             if changeset.name == "README.md":
                 continue

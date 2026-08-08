@@ -1,0 +1,48 @@
+{
+  "name": "@debonzi/db11-crew",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DB11 Crew skill, CLI, setup workflow, and Pi completion-event extension.",
+  "author": "debonzi",
+  "license": "MIT",
+  "homepage": "https://github.com/debonzi/db11-ai-tools/tree/main/packages/db11-crew#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/debonzi/db11-ai-tools.git",
+    "directory": "packages/db11-crew"
+  },
+  "bugs": {
+    "url": "https://github.com/debonzi/db11-ai-tools/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "herdr",
+    "parallel-agents"
+  ],
+  "files": [
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "skills/db11-crew/SKILL.md",
+    "skills/db11-crew/references/CLI.md",
+    "skills/db11-crew/scripts/db11-crew",
+    "skills/db11-crew-setup/SKILL.md",
+    "agents/pi/extensions/db11-crew-events/README.md",
+    "agents/pi/extensions/db11-crew-events/index.ts"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "skills": [
+      "./skills"
+    ],
+    "extensions": [
+      "./agents/pi/extensions/db11-crew-events/index.ts"
+    ]
+  }
+}

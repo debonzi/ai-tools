@@ -1,4 +1,4 @@
-# Releasing the DBZ Pi packages
+# Releasing the DB11 Pi packages
 
 This document defines the independent release contract for the three publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
 
@@ -8,9 +8,11 @@ Release code must use this fixed allowlist rather than deriving a path or npm id
 
 | `PACKAGE` selector | Workspace | npm package | Annotated tag |
 | --- | --- | --- | --- |
-| `dbz-skills` | `packages/dbz-skills` | `@debonzi/dbz-skills` | `dbz-skills-vX.Y.Z` |
-| `dbz-crew` | `packages/dbz-crew` | `@debonzi/dbz-crew` | `dbz-crew-vX.Y.Z` |
+| `db11-skills` | `packages/db11-skills` | `@debonzi/db11-skills` | `db11-skills-vX.Y.Z` |
+| `db11-crew` | `packages/db11-crew` | `@debonzi/db11-crew` | `db11-crew-vX.Y.Z` |
 | `pi-codex-usage` | `packages/pi-codex-usage` | `@debonzi/pi-codex-usage` | `pi-codex-usage-vX.Y.Z` |
+
+Legacy `dbz-skills` and `dbz-crew` selectors and tag families are historical only and are rejected for new releases. Existing DBZ tags remain unchanged.
 
 Versions and releases are independent. Equal version numbers do not create a fixed or linked release group, and one release metadata commit may be the target of more than one package-qualified tag.
 
@@ -56,14 +58,14 @@ make release-prepare
 make release-commit
 
 # Select one updated package and its exact manifest version.
-make release-info PACKAGE=dbz-crew VERSION=X.Y.Z
-make release-preflight PACKAGE=dbz-crew VERSION=X.Y.Z
-make release-check PACKAGE=dbz-crew VERSION=X.Y.Z
-make release-tag PACKAGE=dbz-crew VERSION=X.Y.Z
-make release-push PACKAGE=dbz-crew VERSION=X.Y.Z
+make release-info PACKAGE=db11-crew VERSION=X.Y.Z
+make release-preflight PACKAGE=db11-crew VERSION=X.Y.Z
+make release-check PACKAGE=db11-crew VERSION=X.Y.Z
+make release-tag PACKAGE=db11-crew VERSION=X.Y.Z
+make release-push PACKAGE=db11-crew VERSION=X.Y.Z
 ```
 
-`release-info` is a local, non-mutating identity and manifest check. The package selector is required for every package-specific validation, tag, and push target. `release-tag` creates `dbz-crew-vX.Y.Z` in this example, and `release-push` atomically pushes `main` and that tag. Repeat the package-specific steps for another workspace updated by the same Changesets release commit.
+`release-info` is a local, non-mutating identity and manifest check. The package selector is required for every package-specific validation, tag, and push target. `release-tag` creates `db11-crew-vX.Y.Z` in this example, and `release-push` atomically pushes `main` and that tag. Repeat the package-specific steps for another workspace updated by the same Changesets release commit.
 
 `release-prepare` and every package-specific tag or push flow must start from a clean local `main`, verify that it includes current remote `main`, and reject existing local or remote tags where applicable. `release-commit` intentionally runs after preparation has changed release metadata; it rejects pre-staged or unrelated changes and accepts only consumed Changesets, affected workspace `package.json` and `CHANGELOG.md` files, and the root `package-lock.json`.
 
@@ -74,8 +76,8 @@ Do not use local `npm publish` as a fallback. If the selector mapping, archive v
 The release workflow must trigger only for these tag families:
 
 ```text
-dbz-skills-v*
-dbz-crew-v*
+db11-skills-v*
+db11-crew-v*
 pi-codex-usage-v*
 ```
 
@@ -87,8 +89,8 @@ The publish job alone needs `id-token: write`; repository contents remain read-o
 
 Each npm identity requires its own registry entry and trusted-publisher authorization:
 
-- `@debonzi/dbz-skills`
-- `@debonzi/dbz-crew`
+- `@debonzi/db11-skills`
+- `@debonzi/db11-crew`
 - `@debonzi/pi-codex-usage`
 
 For each package, the trusted publisher must authorize this GitHub Actions identity:
@@ -96,7 +98,7 @@ For each package, the trusted publisher must authorize this GitHub Actions ident
 | Setting | Value |
 | --- | --- |
 | GitHub organization or user | `debonzi` |
-| Repository | `dbz-ai-tools` |
+| Repository | `db11-ai-tools` |
 | Workflow filename | `release.yml` |
 | Environment | `npm` |
 | Allowed action | `npm publish` |

@@ -1,6 +1,6 @@
 # @debonzi/pi-codex-usage
 
-A focused Pi extension that displays usage for the active official OpenAI Codex account. It adds one TUI widget and one command; it does not bundle skills or other DBZ resources.
+A focused Pi extension that displays usage for the active official OpenAI Codex account. It adds one TUI widget and one command; it does not bundle skills or other DB11 resources.
 
 ## Requirements
 

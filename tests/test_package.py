@@ -13,37 +13,37 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "packages"
 EXPECTED_WORKSPACES = {
-    "dbz-skills": {
-        "name": "@debonzi/dbz-skills",
+    "db11-skills": {
+        "name": "@debonzi/db11-skills",
         "pi": {"skills": ["./skills"]},
         "peers": {},
         "files": {
             "README.md",
             "LICENSE",
             "CHANGELOG.md",
-            "skills/dbz-issues/SKILL.md",
-            "skills/dbz-issues/scripts/issues.py",
-            "skills/dbz-spec/SKILL.md",
-            "skills/dbz-spec/agents/openai.yaml",
+            "skills/db11-issues/SKILL.md",
+            "skills/db11-issues/scripts/issues.py",
+            "skills/db11-spec/SKILL.md",
+            "skills/db11-spec/agents/openai.yaml",
         },
     },
-    "dbz-crew": {
-        "name": "@debonzi/dbz-crew",
+    "db11-crew": {
+        "name": "@debonzi/db11-crew",
         "pi": {
             "skills": ["./skills"],
-            "extensions": ["./agents/pi/extensions/dbz-crew-events/index.ts"],
+            "extensions": ["./agents/pi/extensions/db11-crew-events/index.ts"],
         },
         "peers": {"@earendil-works/pi-coding-agent": "*"},
         "files": {
             "README.md",
             "LICENSE",
             "CHANGELOG.md",
-            "skills/dbz-crew/SKILL.md",
-            "skills/dbz-crew/references/CLI.md",
-            "skills/dbz-crew/scripts/dbz-crew",
-            "skills/dbz-crew-setup/SKILL.md",
-            "agents/pi/extensions/dbz-crew-events/README.md",
-            "agents/pi/extensions/dbz-crew-events/index.ts",
+            "skills/db11-crew/SKILL.md",
+            "skills/db11-crew/references/CLI.md",
+            "skills/db11-crew/scripts/db11-crew",
+            "skills/db11-crew-setup/SKILL.md",
+            "agents/pi/extensions/db11-crew-events/README.md",
+            "agents/pi/extensions/db11-crew-events/index.ts",
         },
     },
     "pi-codex-usage": {
@@ -64,10 +64,10 @@ EXPECTED_WORKSPACES = {
         },
     },
 }
-EXPECTED_SKILL_NAMES = {"dbz-issues", "dbz-spec", "dbz-crew", "dbz-crew-setup"}
+EXPECTED_SKILL_NAMES = {"db11-issues", "db11-spec", "db11-crew", "db11-crew-setup"}
 EXECUTABLE_PATHS = {
-    "dbz-skills": {"skills/dbz-issues/scripts/issues.py"},
-    "dbz-crew": {"skills/dbz-crew/scripts/dbz-crew"},
+    "db11-skills": {"skills/db11-issues/scripts/issues.py"},
+    "db11-crew": {"skills/db11-crew/scripts/db11-crew"},
     "pi-codex-usage": set(),
 }
 LIFECYCLE_SCRIPTS = {
@@ -124,7 +124,8 @@ def normalize_pack_json(output: str, expected_name: str) -> dict:
 class PackageManifestTests(unittest.TestCase):
     def test_root_is_a_private_workspace_coordinator(self) -> None:
         package = load_manifest(ROOT)
-        self.assertEqual(package["name"], "dbz-ai-tools-workspace")
+        self.assertEqual(package["name"], "db11-ai-tools-workspace")
+        self.assertNotEqual(package["name"], "@debonzi/db11-ai-tools")
         self.assertNotEqual(package["name"], "@debonzi/dbz-ai-tools")
         self.assertIs(package["private"], True)
         self.assertEqual(package["type"], "module")
@@ -148,12 +149,20 @@ class PackageManifestTests(unittest.TestCase):
                 self.assertIn("pi-package", package["keywords"])
                 self.assertEqual(package["publishConfig"], {"access": "public"})
                 self.assertEqual(
+                    package["homepage"],
+                    f"https://github.com/debonzi/db11-ai-tools/tree/main/packages/{directory}#readme",
+                )
+                self.assertEqual(
                     package["repository"],
                     {
                         "type": "git",
-                        "url": "git+https://github.com/debonzi/dbz-ai-tools.git",
+                        "url": "git+https://github.com/debonzi/db11-ai-tools.git",
                         "directory": f"packages/{directory}",
                     },
+                )
+                self.assertEqual(
+                    package["bugs"],
+                    {"url": "https://github.com/debonzi/db11-ai-tools/issues"},
                 )
                 self.assertEqual(package["pi"], expected["pi"])
                 self.assertEqual(package.get("peerDependencies", {}), expected["peers"])
@@ -174,6 +183,33 @@ class PackageManifestTests(unittest.TestCase):
                         resolved = (package_root / path).resolve()
                         self.assertTrue(resolved.is_relative_to(package_root.resolve()), relative)
                         self.assertTrue(resolved.exists(), f"{expected['name']}: {relative}")
+
+    def test_pi_codex_usage_uses_db11_active_branding(self) -> None:
+        package_root = PACKAGES / "pi-codex-usage"
+        package = load_manifest(package_root)
+        self.assertEqual(
+            package["homepage"],
+            "https://github.com/debonzi/db11-ai-tools/tree/main/packages/pi-codex-usage#readme",
+        )
+        self.assertEqual(
+            package["repository"],
+            {
+                "type": "git",
+                "url": "git+https://github.com/debonzi/db11-ai-tools.git",
+                "directory": "packages/pi-codex-usage",
+            },
+        )
+        self.assertEqual(
+            package["bugs"],
+            {"url": "https://github.com/debonzi/db11-ai-tools/issues"},
+        )
+        readme = (package_root / "README.md").read_text(encoding="utf-8")
+        extension = (
+            package_root / "agents/pi/extensions/codex-usage/index.ts"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("DBZ resources", readme)
+        self.assertIn('"User-Agent": "db11-codex-usage"', extension)
+        self.assertNotIn("dbz-codex-usage", extension)
 
     def test_every_workspace_skill_has_valid_unique_frontmatter(self) -> None:
         names: set[str] = set()
@@ -198,7 +234,7 @@ class PackageManifestTests(unittest.TestCase):
         self.assertFalse(any(path.parent.name == "dbz-ai-tools-setup" for path in PACKAGES.rglob("SKILL.md")))
 
     def test_setup_is_explicit_scoped_and_confirmation_gated(self) -> None:
-        setup = (PACKAGES / "dbz-crew/skills/dbz-crew-setup/SKILL.md").read_text(
+        setup = (PACKAGES / "db11-crew/skills/db11-crew-setup/SKILL.md").read_text(
             encoding="utf-8"
         )
         for requirement in (
@@ -306,7 +342,7 @@ class PackageArchiveTests(unittest.TestCase):
                     parts = {part.lower() for part in PurePosixPath(path).parts}
                     self.assertTrue(parts.isdisjoint(prohibited_parts), path)
                     self.assertFalse(lowered.endswith((".pyc", ".test.ts")), path)
-                    self.assertNotIn("smoke_dbz_crew.md", lowered)
+                    self.assertNotIn("smoke_db11_crew.md", lowered)
                     self.assertNotIn("trust.json", lowered)
                     self.assertNotIn("dbz-ai-tools-setup", lowered)
                     self.assertNotIn("configure.py", lowered)

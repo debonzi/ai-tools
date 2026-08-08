@@ -342,7 +342,7 @@ async function fetchUsage(authorization: string, callerSignal: AbortSignal): Pro
 		const response = await fetch(USAGE_URL, {
 			headers: {
 				Authorization: authorization,
-				"User-Agent": "dbz-codex-usage",
+				"User-Agent": "db11-codex-usage",
 			},
 			signal: controller.signal,
 		});

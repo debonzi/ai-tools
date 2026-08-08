@@ -52,7 +52,7 @@ PY
         export PI_CODING_AGENT_SESSION_DIR="$case_root/sessions"
         export PI_OFFLINE=1
         export GIT_TERMINAL_PROMPT=0
-        unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID DBZ_CREW_STATE_DIR
+        unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID DB11_CREW_STATE_DIR DBZ_CREW_STATE_DIR
         cd "$work_dir"
 
         pi install "$package_root" >/dev/null
@@ -113,16 +113,16 @@ owned = {
     and Path(command["sourceInfo"].get("baseDir", "")).resolve() == package_root
 }
 
-if selector == "dbz-skills":
+if selector == "db11-skills":
     assert manifest["pi"] == {"skills": ["./skills"]}
-    assert set(owned) == {"skill:dbz-issues", "skill:dbz-spec"}, owned
+    assert set(owned) == {"skill:db11-issues", "skill:db11-spec"}, owned
     assert all(command["source"] == "skill" for command in owned.values())
-elif selector == "dbz-crew":
+elif selector == "db11-crew":
     assert manifest["pi"] == {
         "skills": ["./skills"],
-        "extensions": ["./agents/pi/extensions/dbz-crew-events/index.ts"],
+        "extensions": ["./agents/pi/extensions/db11-crew-events/index.ts"],
     }
-    assert set(owned) == {"skill:dbz-crew", "skill:dbz-crew-setup"}, owned
+    assert set(owned) == {"skill:db11-crew", "skill:db11-crew-setup"}, owned
     assert all(command["source"] == "skill" for command in owned.values())
     assert (package_root / manifest["pi"]["extensions"][0]).is_file()
 elif selector == "pi-codex-usage":
@@ -139,8 +139,8 @@ assert "cusage" not in {command["name"] for command in commands}
 PY
 }
 
-run_package_test dbz-skills @debonzi/dbz-skills
-run_package_test dbz-crew @debonzi/dbz-crew
+run_package_test db11-skills @debonzi/db11-skills
+run_package_test db11-crew @debonzi/db11-crew
 run_package_test pi-codex-usage @debonzi/pi-codex-usage
 
 printf '%s\n' 'All isolated Pi package installation tests passed.'

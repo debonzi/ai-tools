@@ -63,7 +63,7 @@ Package paths, manifests, skill frontmatter, bundled file allowlists, agent meta
 | Internal `dbz_crew*`, `dbzCrew*`, and DBZ-named fixtures | Equivalent `db11_crew*`, `db11Crew*`, and DB11-named fixtures |
 | `SMOKE_DBZ_CREW.md` / `test_dbz_crew.py` | `SMOKE_DB11_CREW.md` / `test_db11_crew.py` |
 
-These rows define the target namespace, not a license to replace persistent or interoperable identifiers blindly. The DB11 Crew runtime migration contract must decide the transition behavior for old state, environment variables, events, delivery markers, worker branches, result sentinels, and installed Pi resources before those changes are implemented.
+These rows define the target namespace, not a license to replace persistent or interoperable identifiers blindly. The approved DB11 Crew runtime contract is the hard, isolated cutover described under [Crew package](#crew-package): legacy state and protocol identities receive no compatibility bridge and remain untouched for rollback.
 
 ### Other active repository identifiers
 
@@ -136,9 +136,9 @@ The DB11 npm package and skill names are new Pi resource identities. No compatib
 
 ### Crew package
 
-The runtime migration must preserve the existing ownership, permission, normalization, anti-symlink, and worktree-isolation guarantees. It must be explicit, bounded, idempotent, and covered for clean DB11 state, legacy-only state, and old/new collision cases. It must never silently merge, overwrite, chmod, follow, or delete legacy state, and rollback behavior must not corrupt the old state.
+The approved runtime contract is an immediate hard namespace cutover with no compatibility window, automatic state migration, or protocol bridge. Consumers finish or clean up former DBZ workers before removing the old package, install the DB11 package, update resource filters, and reload Pi. The DB11 runtime uses only `~/.local/state/db11-crew`, DB11 environment and protocol identities, and DB11 worker branches. Former state-root overrides, events, delivered markers, result sentinels, branches, and installed resources are unsupported by the new runtime.
 
-The detailed compatibility duration, one-time state transition, collision response, protocol bridging, and rollback procedure belong to the DB11 Crew runtime migration contract. Until that contract is approved, persistent Crew paths and protocol identifiers must not be changed by a mechanical repository-wide replacement.
+Legacy `~/.local/state/dbz-crew` is never read, merged, moved, chmodded, followed, overwritten, or deleted. Clean DB11 state is created with the existing ownership, permission, normalization, anti-symlink, and worktree-isolation guarantees. When old and new trees both exist, only the DB11 tree is used and an unsafe DB11 path fails closed independently. Repeating startup is idempotent because the old tree remains out of scope. Rollback requires stopping DB11 workers, switching package sources and filters back, and reloading Pi; the former runtime then sees its untouched state. The package [migration procedure](../packages/db11-crew/README.md#migrate-from-the-former-dbz-runtime) is normative consumer guidance.
 
 ## Temporarily inconsistent commits
 
@@ -167,5 +167,14 @@ Every remaining match must be attributable to one of these bounded categories:
 - preserved released changelog text;
 - explicitly labeled consumer migration or external-cutover guidance;
 - explicit tests for rejection, absence, or supported legacy transition behavior.
+
+The final audit classifies the tracked matches as follows:
+
+- the only DBZ-named paths are preserved closed issues 001 and 008;
+- `issues/closed/**`, the root historical changelog, and the historical sections of package changelogs are preserved records;
+- the root and package READMEs plus `docs/releasing.md` contain labeled migration, removal, or legacy-rejection guidance;
+- active issues 002 and 007 contain, respectively, a preserved closed-issue dependency and an explicitly labeled legacy temporary filename;
+- `tests/test_package.py`, `tests/test_release.py`, `tests/test-package-install.sh`, and DB11 Crew runtime tests contain only absence, rejection, environment-isolation, or untouched-legacy-state assertions;
+- this policy contains the complete old-to-new inventory and this classification.
 
 No remaining match may act as a current package name, workspace path, release selector, tag family, repository URL, skill or extension name, CLI name, runtime protocol identifier, branch prefix, User-Agent, or unannotated current branding.
