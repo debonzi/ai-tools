@@ -87,7 +87,7 @@ npm run check
 npm run pack:check
 ```
 
-See each package README for focused tests. Maintainers should also read the [independent release contract](docs/releasing.md), the [Changesets guidance](.changeset/README.md), and the [historical aggregate-package changelog](CHANGELOG.md).
+See each package README for focused tests. Maintainers should also read the [independent release contract](docs/releasing.md), the [separately authorized external cutover runbook](docs/db11-external-cutover.md), the [Changesets guidance](.changeset/README.md), and the [historical aggregate-package changelog](CHANGELOG.md).
 
 ## Security
 

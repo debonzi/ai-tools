@@ -106,3 +106,7 @@ For each package, the trusted publisher must authorize this GitHub Actions ident
 An initial publication may require a short-lived, package-scoped bootstrap token because npm cannot configure a trusted publisher for a package that does not yet exist. Store such a token only as a protected environment secret, remove and revoke it immediately after bootstrap, configure the trusted publisher separately for each npm package, and then disallow traditional token publication.
 
 Registry creation, trusted-publisher setup, GitHub environment configuration, secrets, approvals, and first publication are external operations. They are not performed by repository implementation or local validation.
+
+## One-time external cutover
+
+The repository rename, initial DB11 package publications, former-package deprecations, redirect verification, rollback gates, and consumer announcement use the separately authorized [DB11 external cutover runbook](db11-external-cutover.md). The runbook is a plan, not authorization: GitHub and npm inventory, mutation, publication, trusted-publisher, and deprecation operations each require approval for their exact remote targets.

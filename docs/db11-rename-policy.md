@@ -172,7 +172,7 @@ The final audit classifies the tracked matches as follows:
 
 - the only DBZ-named paths are preserved closed issues 001 and 008;
 - `issues/closed/**`, the root historical changelog, and the historical sections of package changelogs are preserved records;
-- the root and package READMEs plus `docs/releasing.md` contain labeled migration, removal, or legacy-rejection guidance;
+- the root and package READMEs plus `docs/releasing.md` and `docs/db11-external-cutover.md` contain labeled migration, removal, external-cutover, or legacy-rejection guidance;
 - active issues 002 and 007 contain, respectively, a preserved closed-issue dependency and an explicitly labeled legacy temporary filename;
 - `tests/test_package.py`, `tests/test_release.py`, `tests/test-package-install.sh`, and DB11 Crew runtime tests contain only absence, rejection, environment-isolation, or untouched-legacy-state assertions;
 - this policy contains the complete old-to-new inventory and this classification.
