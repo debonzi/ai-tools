@@ -1,14 +1,17 @@
 # @debonzi/db11-skills
 
-A Pi package for implementation-ready specification workflows.
+A Pi package for durable staged development journeys and implementation-ready specification workflows.
 
-## Included skill
+## Included skills
 
 | Skill | Purpose | Prerequisites |
 | --- | --- | --- |
+| [`db11-journey`](skills/db11-journey/SKILL.md) | Run Definition, Planning, and Implementation across sessions with durable Wyrd state | Wyrd CLI 0.1.x |
 | [`db11-spec`](skills/db11-spec/SKILL.md) | Guide discovery and produce an implementation-ready specification | No external executable |
 
-`db11-spec` includes its [OpenAI agent metadata](skills/db11-spec/agents/openai.yaml).
+`db11-journey` uses a compact routing skill and loads operation, Wyrd-model, and phase references only when they are relevant to the current session. It does not initialize Wyrd or delegate DB11 Crew members automatically.
+
+Both skills include their OpenAI agent metadata under their respective `agents/` directories.
 
 ## Install
 
@@ -24,9 +27,9 @@ For development from the repository root, install the local workspace instead:
 pi install ./packages/db11-skills
 ```
 
-Pi discovers `db11-spec` under the declared `skills` resource by default. Use `pi config` to control global resource loading or `pi config -l` for project overrides.
+Pi discovers both skills under the declared `skills` resource by default. Use `pi config` to control global resource loading or `pi config -l` for project overrides.
 
-Run `/skill:db11-spec` to load the skill explicitly. Pi may also load an enabled skill when its description matches the request.
+Run `/skill:db11-journey start <codename>` to start a Journey, `/skill:db11-journey resume <codename>` to recover its bounded current context, or `/skill:db11-journey advance <codename>` to perform an explicitly requested phase transition. Run `/skill:db11-spec` for standalone specification discovery. Pi may also load an enabled skill when its description matches the request.
 
 ## Upgrade note
 
@@ -56,7 +59,7 @@ There are no temporary aliases for the former package or skill names. Migrate ex
    ```
 
    Use these literal commands only when `pi list` reports `npm:@debonzi/dbz-skills`; otherwise substitute the exact reported source.
-3. Install the DB11 npm package in the intended scope when you need `db11-spec`:
+3. Install the DB11 npm package in the intended scope when you need `db11-journey` or `db11-spec`:
 
    ```sh
    # Global installation
@@ -66,7 +69,7 @@ There are no temporary aliases for the former package or skill names. Migrate ex
    pi install npm:@debonzi/db11-skills -l
    ```
 
-4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices do not transfer automatically. Configure `db11-spec` explicitly where needed and remove stale issue-skill filters; project overrides can still affect a global installation.
+4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices do not transfer automatically. Configure `db11-journey` and `db11-spec` explicitly where needed and remove stale issue-skill filters; project overrides can still affect a global installation.
 5. Run `/reload` in every running Pi session that should use the new package, or restart those sessions, after removal, installation, and filter changes.
 
 ## Develop and test

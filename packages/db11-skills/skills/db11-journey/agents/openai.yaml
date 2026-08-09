@@ -1,0 +1,4 @@
+interface:
+  display_name: "DB11 Journey"
+  short_description: "Run durable staged development journeys"
+  default_prompt: "Use $db11-journey to start or resume a Wyrd-backed development Journey."

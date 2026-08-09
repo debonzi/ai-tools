@@ -21,6 +21,17 @@ EXPECTED_WORKSPACES = {
             "README.md",
             "LICENSE",
             "CHANGELOG.md",
+            "skills/db11-journey/SKILL.md",
+            "skills/db11-journey/agents/openai.yaml",
+            "skills/db11-journey/references/concepts.md",
+            "skills/db11-journey/references/wyrd-model.md",
+            "skills/db11-journey/references/operations/start.md",
+            "skills/db11-journey/references/operations/resume.md",
+            "skills/db11-journey/references/operations/work.md",
+            "skills/db11-journey/references/operations/advance.md",
+            "skills/db11-journey/references/phases/definition.md",
+            "skills/db11-journey/references/phases/planning.md",
+            "skills/db11-journey/references/phases/implementation.md",
             "skills/db11-spec/SKILL.md",
             "skills/db11-spec/agents/openai.yaml",
         },
@@ -62,7 +73,7 @@ EXPECTED_WORKSPACES = {
         },
     },
 }
-EXPECTED_SKILL_NAMES = {"db11-spec", "db11-crew", "db11-crew-setup"}
+EXPECTED_SKILL_NAMES = {"db11-journey", "db11-spec", "db11-crew", "db11-crew-setup"}
 EXECUTABLE_PATHS = {
     "db11-skills": set(),
     "db11-crew": {"skills/db11-crew/scripts/db11-crew"},
@@ -230,6 +241,37 @@ class PackageManifestTests(unittest.TestCase):
 
         self.assertEqual(names, EXPECTED_SKILL_NAMES)
         self.assertFalse(any(path.parent.name == "dbz-ai-tools-setup" for path in PACKAGES.rglob("SKILL.md")))
+
+    def test_db11_journey_uses_progressive_phase_references(self) -> None:
+        journey_root = PACKAGES / "db11-skills/skills/db11-journey"
+        skill = (journey_root / "SKILL.md").read_text(encoding="utf-8")
+
+        for relative in (
+            "references/concepts.md",
+            "references/wyrd-model.md",
+            "references/operations/start.md",
+            "references/operations/resume.md",
+            "references/operations/work.md",
+            "references/operations/advance.md",
+            "references/phases/definition.md",
+            "references/phases/planning.md",
+            "references/phases/implementation.md",
+        ):
+            self.assertIn(relative, skill)
+            self.assertTrue((journey_root / relative).is_file(), relative)
+
+        for requirement in (
+            "Do not preload every reference",
+            "journey:<codename>",
+            "phase:definition",
+            "phase:planning",
+            "phase:implementation",
+            "Never read or edit `.wyrd/`",
+            "Never dispatch DB11 Crew members automatically",
+        ):
+            self.assertIn(requirement, skill)
+
+        self.assertLess(len(skill), 6_000)
 
     def test_setup_is_explicit_scoped_and_confirmation_gated(self) -> None:
         setup = (PACKAGES / "db11-crew/skills/db11-crew-setup/SKILL.md").read_text(

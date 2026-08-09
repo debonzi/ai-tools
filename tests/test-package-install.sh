@@ -126,7 +126,7 @@ owned = {
 
 if selector == "db11-skills":
     assert manifest["pi"] == {"skills": ["./skills"]}
-    assert set(owned) == {"skill:db11-spec"}, owned
+    assert set(owned) == {"skill:db11-journey", "skill:db11-spec"}, owned
     assert all(command["source"] == "skill" for command in owned.values())
 elif selector == "db11-crew":
     assert manifest["pi"] == {

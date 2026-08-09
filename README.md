@@ -6,7 +6,7 @@ This repository is the private workspace coordinator and source catalog for thre
 
 | Package | Included resources | Intended use |
 | --- | --- | --- |
-| [`@debonzi/db11-skills`](packages/db11-skills/README.md) | `db11-spec` skill | Implementation-ready specification workflows |
+| [`@debonzi/db11-skills`](packages/db11-skills/README.md) | `db11-journey` and `db11-spec` skills | Durable staged development journeys and implementation-ready specification workflows |
 | [`@debonzi/db11-crew`](packages/db11-crew/README.md) | DB11 Crew skill, bundled CLI and references, explicit setup skill, and required event extension | Explicit delegation from Pi to Herdr-managed Pi workers |
 | [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/README.md) | Codex Usage Pi extension | OpenAI Codex quota display and on-demand usage reports |
 
@@ -26,7 +26,7 @@ pi install npm:@debonzi/pi-codex-usage
 
 `pi install` installs a complete package and enables its declared resources by default. It writes to global settings unless `-l` is supplied for a project-local installation. Use `pi config` to control globally loaded resources, or `pi config -l` to start in project overrides with inherited global resources shown dimmed.
 
-`@debonzi/db11-skills` distributes the standalone `db11-spec` skill. DB11 Crew uses a cohesive package boundary: its skill, CLI, setup flow, and event extension ship together because they share a private state, event, and lifecycle contract. A script used only through a skill remains bundled with that skill.
+`@debonzi/db11-skills` distributes the standalone `db11-journey` and `db11-spec` skills. DB11 Crew uses a cohesive package boundary: its skill, CLI, setup flow, and event extension ship together because they share a private state, event, and lifecycle contract. A script used only through a skill remains bundled with that skill.
 
 If Pi is already running after an install or configuration change, run `/reload` or restart Pi. Unpinned packages can be updated with `pi update --extensions`.
 
@@ -92,7 +92,7 @@ There are no temporary aliases for the former package or skill names. Migrate ex
    ```
 
    Use these literal commands only when `pi list` reports `npm:@debonzi/dbz-skills`; otherwise substitute the exact reported source.
-3. Install the DB11 npm package in the intended scope when you need `db11-spec`:
+3. Install the DB11 npm package in the intended scope when you need `db11-journey` or `db11-spec`:
 
    ```sh
    # Global installation
@@ -102,7 +102,7 @@ There are no temporary aliases for the former package or skill names. Migrate ex
    pi install npm:@debonzi/db11-skills -l
    ```
 
-4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices do not transfer automatically. Configure `db11-spec` explicitly where needed and remove stale issue-skill filters; project overrides can still affect a global installation.
+4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices do not transfer automatically. Configure `db11-journey` and `db11-spec` explicitly where needed and remove stale issue-skill filters; project overrides can still affect a global installation.
 5. Run `/reload` in every running Pi session that should use the new package, or restart those sessions, after removal, installation, and filter changes.
 
 See the [`@debonzi/db11-skills` package guide](packages/db11-skills/README.md#migrate-from-the-former-dbz-package) for the package-specific procedure.
