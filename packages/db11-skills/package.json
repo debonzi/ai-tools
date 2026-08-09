@@ -2,7 +2,7 @@
   "name": "@debonzi/db11-skills",
   "version": "0.1.0",
   "type": "module",
-  "description": "Portable DB11 skills for issue management and implementation specification workflows in Pi.",
+  "description": "Portable DB11 skill for implementation-ready specification workflows in Pi.",
   "author": "debonzi",
   "license": "MIT",
   "homepage": "https://github.com/debonzi/db11-ai-tools/tree/main/packages/db11-skills#readme",
@@ -24,8 +24,6 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "skills/db11-issues/SKILL.md",
-    "skills/db11-issues/scripts/issues.py",
     "skills/db11-spec/SKILL.md",
     "skills/db11-spec/agents/openai.yaml"
   ],

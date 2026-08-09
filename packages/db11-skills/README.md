@@ -1,15 +1,14 @@
 # @debonzi/db11-skills
 
-A multi-skill Pi package for local issue management and implementation-ready specification workflows. The skills remain independently discoverable even though they share one distribution.
+A Pi package for implementation-ready specification workflows.
 
-## Included skills
+## Included skill
 
 | Skill | Purpose | Prerequisites |
 | --- | --- | --- |
-| [`db11-issues`](skills/db11-issues/SKILL.md) | Manage dependency-aware Markdown issue registries through its bundled Python CLI | Python 3 |
 | [`db11-spec`](skills/db11-spec/SKILL.md) | Guide discovery and produce an implementation-ready specification | No external executable |
 
-The `db11-issues` CLI is intended to be resolved and invoked through its skill; this package does not install a global executable. `db11-spec` also includes its [OpenAI agent metadata](skills/db11-spec/agents/openai.yaml).
+`db11-spec` includes its [OpenAI agent metadata](skills/db11-spec/agents/openai.yaml).
 
 ## Install
 
@@ -25,18 +24,22 @@ For development from the repository root, install the local workspace instead:
 pi install ./packages/db11-skills
 ```
 
-Pi installs the complete package and discovers both skills under the declared `skills` resource by default. Use `pi config` to control global resource loading or `pi config -l` for project overrides. Resource configuration changes what Pi loads; it does not split or partially download the npm package.
+Pi discovers `db11-spec` under the declared `skills` resource by default. Use `pi config` to control global resource loading or `pi config -l` for project overrides.
 
-Run `/skill:db11-issues` or `/skill:db11-spec` to load a skill explicitly. Pi may also load an enabled skill when its description matches the request.
+Run `/skill:db11-spec` to load the skill explicitly. Pi may also load an enabled skill when its description matches the request.
+
+## Upgrade note
+
+The former `db11-issues` skill and its bundled Markdown registry CLI are no longer distributed. Updating the package does not modify existing registry files.
 
 ## Migrate from the former DBZ package
 
-The package and skills have new Pi identities:
+The package and retained specification skill have new Pi identities:
 
-| Former identity | DB11 replacement |
+| Former identity | Current replacement |
 | --- | --- |
 | `@debonzi/dbz-skills` | `@debonzi/db11-skills` |
-| `dbz-issues` / `/skill:dbz-issues` | `db11-issues` / `/skill:db11-issues` |
+| `dbz-issues` / `/skill:dbz-issues` | No replacement; the issue-management skill is retired |
 | `dbz-spec` / `/skill:dbz-spec` | `db11-spec` / `/skill:db11-spec` |
 
 There are no temporary aliases for the former package or skill names. Migrate explicitly after the DB11 npm package is available:
@@ -53,7 +56,7 @@ There are no temporary aliases for the former package or skill names. Migrate ex
    ```
 
    Use these literal commands only when `pi list` reports `npm:@debonzi/dbz-skills`; otherwise substitute the exact reported source.
-3. Install the DB11 npm package in the intended scope:
+3. Install the DB11 npm package in the intended scope when you need `db11-spec`:
 
    ```sh
    # Global installation
@@ -63,10 +66,8 @@ There are no temporary aliases for the former package or skill names. Migrate ex
    pi install npm:@debonzi/db11-skills -l
    ```
 
-4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices that refer to the former package or skill identities do not transfer automatically. Configure `db11-issues` and `db11-spec` explicitly where needed; project overrides can still affect a global installation.
+4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices do not transfer automatically. Configure `db11-spec` explicitly where needed and remove stale issue-skill filters; project overrides can still affect a global installation.
 5. Run `/reload` in every running Pi session that should use the new package, or restart those sessions, after removal, installation, and filter changes.
-
-Existing Markdown issue registries remain compatible with `db11-issues`. The transient reservation filename changed from `.NNN.dbz-issues-reservation` to `.NNN.db11-issues-reservation` and has no cross-version compatibility guarantee.
 
 ## Develop and test
 
@@ -74,11 +75,10 @@ From a full repository source checkout:
 
 ```sh
 cd packages/db11-skills
-python3 -m unittest discover -s skills/db11-issues/tests -v
 npm pack --dry-run --ignore-scripts
 ```
 
-The Python tests and other repository-only validation files are not included in the package tarball. Run `npm run check` and `npm run pack:check` from the repository root for the complete workspace validation.
+Repository-only validation files are not included in the package tarball. Run `npm run check` and `npm run pack:check` from the repository root for the complete workspace validation.
 
 ## License
 

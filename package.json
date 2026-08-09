@@ -11,7 +11,7 @@
   "scripts": {
     "test": "npm run test:behavior && npm run test:package && npm run test:install && npm run test:release && npm run test:shell",
     "test:behavior": "npm run test:python && npm run test:extensions",
-    "test:python": "python3 -m unittest discover -s packages/db11-skills/skills/db11-issues/tests -v && python3 -m unittest discover -s packages/db11-crew/skills/db11-crew/tests -v",
+    "test:python": "python3 -m unittest discover -s packages/db11-crew/skills/db11-crew/tests -v",
     "test:extensions": "TZ=UTC node --test packages/pi-codex-usage/agents/pi/extensions/codex-usage/core.test.ts packages/pi-codex-usage/agents/pi/extensions/codex-usage/index.test.ts packages/db11-crew/agents/pi/extensions/db11-crew-events/index.test.ts",
     "test:package": "python3 tests/test_package.py -v",
     "test:install": "tests/test-package-install.sh",

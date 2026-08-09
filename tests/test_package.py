@@ -21,8 +21,6 @@ EXPECTED_WORKSPACES = {
             "README.md",
             "LICENSE",
             "CHANGELOG.md",
-            "skills/db11-issues/SKILL.md",
-            "skills/db11-issues/scripts/issues.py",
             "skills/db11-spec/SKILL.md",
             "skills/db11-spec/agents/openai.yaml",
         },
@@ -64,9 +62,9 @@ EXPECTED_WORKSPACES = {
         },
     },
 }
-EXPECTED_SKILL_NAMES = {"db11-issues", "db11-spec", "db11-crew", "db11-crew-setup"}
+EXPECTED_SKILL_NAMES = {"db11-spec", "db11-crew", "db11-crew-setup"}
 EXECUTABLE_PATHS = {
-    "db11-skills": {"skills/db11-issues/scripts/issues.py"},
+    "db11-skills": set(),
     "db11-crew": {"skills/db11-crew/scripts/db11-crew"},
     "pi-codex-usage": set(),
 }
