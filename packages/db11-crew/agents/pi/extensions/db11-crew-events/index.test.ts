@@ -142,17 +142,45 @@ test("uses the literal account state path without environment overrides", () => 
 	}
 });
 
-test("leaves the former DBZ state tree untouched", { concurrency: false }, async () => {
+test("leaves the former DBZ state and pending protocol event untouched", { concurrency: false }, async () => {
 	await withRuntime(async (stateRoot, homeDirectory) => {
+		const sessionId = "session-legacy-state";
 		const legacyRoot = resolve(homeDirectory, ".local", "state", "dbz-crew");
 		const marker = resolve(legacyRoot, "legacy.json");
-		await mkdir(legacyRoot, { mode: 0o755 });
+		const legacyResult = resolve(legacyRoot, "results", "pane", "legacy.md");
+		const legacyEvent = resolve(
+			legacyRoot,
+			"events",
+			stableDigest(sessionId),
+			"legacy-event.json",
+		);
+		await mkdir(dirname(legacyResult), { recursive: true });
+		await mkdir(dirname(legacyEvent), { recursive: true });
 		await chmod(legacyRoot, 0o755);
 		await writeFile(marker, '{"legacy":true}\n');
+		await writeFile(legacyResult, "DBZ-CREW RESULT: preserve\n");
+		const eventContents = `${JSON.stringify({
+			id: "legacy-event",
+			principal_session_id: sessionId,
+			task_id: "legacy-worker",
+			phase: "implementation",
+			status: "done",
+			result: legacyResult,
+			created_at: 1,
+		})}\n`;
+		await writeFile(legacyEvent, eventContents);
 
-		const harness = makeHarness("session-legacy-state", [], homeDirectory);
+		const harness = makeHarness(
+			sessionId,
+			[{ type: "custom", customType: "dbz-crew-event-delivered", data: { id: "legacy-event" } }],
+			homeDirectory,
+		);
 		await harness.handlers.get("session_start")?.({}, harness.ctx);
+		await new Promise((resolvePromise) => setTimeout(resolvePromise, 80));
+		assert.equal(harness.sent.length, 0);
 		assert.equal(await readFile(marker, "utf8"), '{"legacy":true}\n');
+		assert.equal(await readFile(legacyResult, "utf8"), "DBZ-CREW RESULT: preserve\n");
+		assert.equal(await readFile(legacyEvent, "utf8"), eventContents);
 		assert.equal((await stat(legacyRoot)).mode & 0o777, 0o755);
 		assert.equal(resolveStateRoot(homeDirectory), stateRoot);
 		await harness.handlers.get("session_shutdown")?.({}, harness.ctx);
@@ -213,6 +241,20 @@ test("does not deliver an event owned by another Pi session", { concurrency: fal
 		await harness.handlers.get("session_start")?.({}, harness.ctx);
 		await new Promise((resolvePromise) => setTimeout(resolvePromise, 80));
 		assert.equal(harness.sent.length, 0);
+		await harness.handlers.get("session_shutdown")?.({}, harness.ctx);
+	});
+});
+
+test("does not treat a former delivered marker as a DB11 acknowledgement", { concurrency: false }, async () => {
+	await withRuntime(async (stateRoot, homeDirectory) => {
+		const sessionId = "session-legacy-marker";
+		await writeEvent(stateRoot, sessionId, "event-shared-id");
+		const harness = makeHarness(sessionId, [
+			{ type: "custom", customType: "dbz-crew-event-delivered", data: { id: "event-shared-id" } },
+		], homeDirectory);
+		await harness.handlers.get("session_start")?.({}, harness.ctx);
+		await waitFor(() => harness.sent.length === 1);
+		assert.equal(harness.appended.at(-1)?.customType, "db11-crew-event-delivered");
 		await harness.handlers.get("session_shutdown")?.({}, harness.ctx);
 	});
 });

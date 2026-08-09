@@ -33,6 +33,8 @@ Then explicitly run the setup skill when prerequisite or integration guidance is
 
 The setup skill validates DB11 Crew prerequisites and presents a complete plan before any mutation. It can run `herdr integration install pi` only after separate explicit confirmation. It does not install unrelated software, change trust decisions, or edit package filters. Reload or restart an already running Pi session after setup.
 
+For a clean install, `pi list --no-approve` should report only the intended DB11 package source, without a former DBZ package or resource filter. A filtered DB11 package must keep both skills and `db11-crew-events` enabled. The setup workflow also checks known top-level Pi resource locations for stale `dbz-crew`, setup, aggregate-setup, and event-extension identities; it reports them but never removes them.
+
 ## Commands
 
 Resolve `<db11-crew>` to `python3 <db11-crew-skill-directory>/scripts/db11-crew`:
@@ -69,13 +71,25 @@ Use `--in-place` only for explicitly requested live-worktree exploration. The wo
 
 Isolated read-only workers are checked against their initial snapshot. Any change fails validation and retains the tab, branch, and worktree for inspection. Unchanged read-only resources are removed automatically after the result is captured. In-place tabs are also closed automatically after result capture.
 
-Workers never merge, push, rebase `main`, or remove implementation worktrees. Implementation rebase, integration, and cleanup require separate explicit user requests and retain the strict clean-`main` preflight.
+## Implementation lifecycle
 
-## State and completion
+Each transition is explicit and runs strict preflight again:
+
+1. `dispatch` creates a `db11-crew/<session-suffix>/<task>` branch and isolated worktree, starts one Pi worker, and records it as running.
+2. The monitor captures the `DB11-CREW RESULT:`, updates `status`, and emits a session-addressed completion event. `status` is a snapshot command; the principal must not wait on it.
+3. `rebase --task-id <id>` resumes a completed worker only in its original Pi session and asks that worker to rebase its clean branch onto current local `main`.
+4. `integrate --branch <worker-branch>` refuses a read-only or stale branch and creates a local non-fast-forward merge only when current `main` is the merge base.
+5. `cleanup --task-id <id> --branch <worker-branch>` closes the tab and removes only a clean, merged worktree and branch. `--superseded-by` permits an unmerged branch only when the named replacement is already merged.
+
+Workers never merge, push, rebase `main`, or remove implementation worktrees. Rebase, integration, and cleanup require separate explicit user requests and are never triggered by completion delivery.
+
+## State, hard cutover, and completion
 
 State is always stored in `~/.local/state/db11-crew`; `DB11_CREW_STATE_DIR` and `XDG_STATE_HOME` do not change this location. Prompts, results, and completion events are private local state and must not be committed.
 
-Completion events are delivered only to the original Pi session and use follow-up delivery, so they do not steer an active principal turn. Read-only result files and events remain available after automatic resource cleanup.
+The DB11 CLI never reads or mutates `~/.local/state/dbz-crew`. Former `DBZ_CREW_*` variables, `dbz-crew-event` and delivered custom types, `DBZ-CREW` sentinels, and `dbz-crew/` branches are unsupported and ignored. An old state tree is preserved for rollback and does not count as a stale installed Pi resource. When both trees exist, DB11 uses only its own tree; an unsafe DB11 path fails closed without touching the old tree. There is no state migration or bridge.
+
+Completion events are delivered only to the original Pi session and use follow-up delivery, so they do not steer an active principal turn. The extension accepts only private, current-user DB11 event and result files, records `db11-crew-event-delivered` acknowledgements, and recovers unacknowledged pending events after restart for at-least-once delivery. Former delivered markers do not acknowledge DB11 events. Read-only result files and events remain available after automatic resource cleanup.
 
 ## Validation
 

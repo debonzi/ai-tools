@@ -247,6 +247,10 @@ class PackageManifestTests(unittest.TestCase):
             "herdr integration install --help",
             "herdr integration status",
             "herdr integration install pi",
+            "pi list --no-approve",
+            "dbz-crew-events",
+            "broken symlinks",
+            "~/.local/state/dbz-crew",
             "explicit confirmation",
             "/reload",
         ):
@@ -255,6 +259,54 @@ class PackageManifestTests(unittest.TestCase):
         self.assertNotIn("configure.py", setup)
         self.assertFalse((ROOT / "skills/dbz-ai-tools-setup/SKILL.md").exists())
         self.assertFalse((ROOT / "skills/dbz-ai-tools-setup/scripts/configure.py").exists())
+
+    def test_db11_crew_guidance_covers_install_cutover_events_and_lifecycle(self) -> None:
+        crew_root = PACKAGES / "db11-crew"
+        readme = (crew_root / "README.md").read_text(encoding="utf-8")
+        skill = (crew_root / "skills/db11-crew/SKILL.md").read_text(encoding="utf-8")
+        cli = (crew_root / "skills/db11-crew/references/CLI.md").read_text(encoding="utf-8")
+        extension = (
+            crew_root / "agents/pi/extensions/db11-crew-events/README.md"
+        ).read_text(encoding="utf-8")
+        smoke = (crew_root / "tests/SMOKE_DB11_CREW.md").read_text(encoding="utf-8")
+
+        for requirement in (
+            "For a clean installation",
+            "hard namespace cutover",
+            "pi list --no-approve",
+            "db11-crew-event-delivered",
+            "Rebase, local non-fast-forward integration, and cleanup",
+            "~/.local/state/dbz-crew",
+        ):
+            self.assertIn(requirement, readme)
+        for requirement in (
+            "pi list --no-approve",
+            "dbz-crew-events",
+            "preserved `~/.local/state/dbz-crew`",
+            "delivers completion only to the original principal session as a follow-up",
+        ):
+            self.assertIn(requirement, skill)
+        for requirement in (
+            "## Implementation lifecycle",
+            "local non-fast-forward merge",
+            "There is no state migration or bridge",
+            "Former delivered markers do not acknowledge DB11 events",
+        ):
+            self.assertIn(requirement, cli)
+        for requirement in (
+            "never reads or changes `~/.local/state/dbz-crew`",
+            "does not treat `dbz-crew-event-delivered` entries as DB11 acknowledgements",
+            "at least once",
+        ):
+            self.assertIn(requirement, extension)
+        for heading in (
+            "## 1. Automated baseline and clean package installation",
+            "## 2. Installed-resource and cutover audit",
+            "## 3. Hard-cutover and untouched-state checks",
+            "## 4. Interactive implementation lifecycle and event delivery",
+            "## 5. Read-only lifecycle",
+        ):
+            self.assertIn(heading, smoke)
 
     def test_bundled_python_entry_points_remain_executable(self) -> None:
         for directory, paths in EXECUTABLE_PATHS.items():
@@ -345,6 +397,9 @@ class PackageArchiveTests(unittest.TestCase):
                     self.assertNotIn("smoke_db11_crew.md", lowered)
                     self.assertNotIn("trust.json", lowered)
                     self.assertNotIn("dbz-ai-tools-setup", lowered)
+                    self.assertNotIn("skills/dbz-crew", lowered)
+                    self.assertNotIn("skills/dbz-crew-setup", lowered)
+                    self.assertNotIn("extensions/dbz-crew-events", lowered)
                     self.assertNotIn("configure.py", lowered)
 
                 other_files = set().union(

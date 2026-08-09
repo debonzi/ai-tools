@@ -71,7 +71,9 @@ PY
         "$package_root" \
         "$agent_dir/settings.json" \
         "$agent_dir/trust.json" \
-        "$case_root/rpc.jsonl" <<'PY'
+        "$case_root/rpc.jsonl" \
+        "$home" \
+        "$case_root/pi-list.txt" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -81,6 +83,8 @@ package_root = Path(sys.argv[4]).resolve()
 settings_path = Path(sys.argv[5])
 trust_path = Path(sys.argv[6])
 rpc_path = Path(sys.argv[7])
+home = Path(sys.argv[8])
+pi_list_path = Path(sys.argv[9])
 
 manifest = json.loads((package_root / "package.json").read_text(encoding="utf-8"))
 assert manifest["name"] == expected_name
@@ -96,6 +100,13 @@ if not installed.is_absolute():
     installed = settings_path.parent / installed
 assert installed.resolve() == package_root
 assert not trust_path.exists(), "package installation must not create a trust decision"
+
+pi_list = pi_list_path.read_text(encoding="utf-8")
+assert str(package_root) in pi_list, pi_list
+assert "dbz-crew" not in pi_list.lower(), pi_list
+assert not (home / ".local/bin/db11-crew").exists(), "the bundled CLI must not be installed in PATH"
+assert not (home / ".local/state/db11-crew").exists(), "inert clean install must not create runtime state"
+assert not (home / ".local/state/dbz-crew").exists(), "clean install must not create legacy state"
 
 records = [json.loads(line) for line in rpc_path.read_text(encoding="utf-8").splitlines() if line]
 assert not [record for record in records if record.get("type") == "extension_error"], records
@@ -125,6 +136,13 @@ elif selector == "db11-crew":
     assert set(owned) == {"skill:db11-crew", "skill:db11-crew-setup"}, owned
     assert all(command["source"] == "skill" for command in owned.values())
     assert (package_root / manifest["pi"]["extensions"][0]).is_file()
+    for stale in (
+        "skills/dbz-crew",
+        "skills/dbz-crew-setup",
+        "skills/dbz-ai-tools-setup",
+        "agents/pi/extensions/dbz-crew-events",
+    ):
+        assert not (package_root / stale).exists(), stale
 elif selector == "pi-codex-usage":
     assert manifest["pi"] == {
         "extensions": ["./agents/pi/extensions/codex-usage/index.ts"],
@@ -134,8 +152,15 @@ elif selector == "pi-codex-usage":
 else:
     raise AssertionError(selector)
 
-assert "skill:dbz-ai-tools-setup" not in {command["name"] for command in commands}
-assert "cusage" not in {command["name"] for command in commands}
+command_names = {command["name"] for command in commands}
+assert {
+    "skill:dbz-crew",
+    "skill:dbz-crew-setup",
+    "skill:dbz-ai-tools-setup",
+    "skill:dbz-issues",
+    "skill:dbz-spec",
+}.isdisjoint(command_names), command_names
+assert "cusage" not in command_names
 PY
 }
 

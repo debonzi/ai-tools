@@ -562,6 +562,138 @@ class CrewTest(unittest.TestCase):
         self.assertFalse(any(call[:3] == ["git", "worktree", "add"] for call in calls))
         launch_monitor.assert_called_once()
 
+    def test_rebase_resumes_the_original_worker_and_records_the_lifecycle(self) -> None:
+        repository = self.create_repository("rebase-repo")
+        (repository / "tracked.txt").write_text("main\n", encoding="utf-8")
+        self.git(repository, "add", "tracked.txt")
+        self.git(repository, "commit", "-m", "test: initial")
+        branch = "db11-crew/session/rebase-worker"
+        worktree = Path(self.temporary.name) / "rebase-worker"
+        self.git(repository, "worktree", "add", "-b", branch, str(worktree), "main")
+        pane = "pane:rebase-main"
+        state = {
+            "main_pane": pane,
+            "queue": [],
+            "workers": {
+                "rebase-worker": {
+                    "agent": "crew-rebase-worker",
+                    "agent_kind": "pi",
+                    "branch": branch,
+                    "monitor_pane": "pane:monitor",
+                    "principal_session_id": "session-test",
+                    "read_only": False,
+                    "status": "done",
+                    "worktree": str(worktree),
+                }
+            },
+        }
+        CREW.write_json(CREW.state_path(pane), state)
+        check = {
+            "main_pane": pane,
+            "principal_agent": "pi",
+            "principal_session_id": "session-test",
+        }
+
+        with (
+            mock.patch.object(
+                CREW,
+                "current_state",
+                return_value=(state, CREW.state_path(pane), {"pane_id": pane}),
+            ),
+            mock.patch.object(CREW, "require_preflight", return_value=check),
+            mock.patch.object(CREW, "launch_monitor") as launch_monitor,
+            mock.patch("builtins.print"),
+        ):
+            CREW.rebase(argparse.Namespace(task_id="rebase-worker"))
+
+        recorded = json.loads(CREW.state_path(pane).read_text(encoding="utf-8"))
+        self.assertEqual(recorded["workers"]["rebase-worker"]["status"], "rebasing")
+        prompt = CREW.task_path(pane, "rebase-worker", "rebase").read_text(encoding="utf-8")
+        self.assertIn("DB11-CREW", prompt)
+        self.assertIn(f"`{branch}`", prompt)
+        launch_monitor.assert_called_once_with(
+            "pane:monitor",
+            pane,
+            "crew-rebase-worker",
+            "rebase-worker",
+            CREW.task_path(pane, "rebase-worker", "rebase"),
+            "session-test",
+            "rebase",
+        )
+
+    def test_integrate_and_cleanup_complete_the_explicit_local_lifecycle(self) -> None:
+        repository = self.create_repository("lifecycle-repo")
+        (repository / "tracked.txt").write_text("main\n", encoding="utf-8")
+        self.git(repository, "add", "tracked.txt")
+        self.git(repository, "commit", "-m", "test: initial")
+        branch = "db11-crew/session/lifecycle-worker"
+        worktree = Path(self.temporary.name) / "lifecycle-worker"
+        self.git(repository, "worktree", "add", "-b", branch, str(worktree), "main")
+        (worktree / "worker.txt").write_text("worker\n", encoding="utf-8")
+        self.git(worktree, "add", "worker.txt")
+        self.git(worktree, "commit", "-m", "feat: add worker result")
+
+        pane = "pane:lifecycle-main"
+        state = {
+            "main_pane": pane,
+            "queue": [],
+            "workers": {
+                "lifecycle-worker": {
+                    "branch": branch,
+                    "read_only": False,
+                    "status": "done",
+                    "tab": "tab:lifecycle-worker",
+                    "worktree": str(worktree),
+                }
+            },
+        }
+        CREW.write_json(CREW.state_path(pane), state)
+        check = {"main_pane": pane, "repo_root": str(repository)}
+        current = (state, CREW.state_path(pane), {"pane_id": pane})
+
+        with (
+            mock.patch.object(CREW, "current_state", return_value=current),
+            mock.patch.object(CREW, "require_preflight", return_value=check),
+            mock.patch("builtins.print"),
+        ):
+            CREW.integrate(argparse.Namespace(branch=branch))
+
+        self.assertEqual((repository / "worker.txt").read_text(encoding="utf-8"), "worker\n")
+        self.assertEqual(len(self.git(repository, "show", "-s", "--format=%P", "HEAD").split()), 2)
+
+        original_command = CREW.command
+
+        def local_command(args: list[str], cwd: Path | None = None):
+            if args[:3] == ["herdr", "tab", "close"]:
+                return completed()
+            return original_command(args, cwd)
+
+        with (
+            mock.patch.object(CREW, "current_state", return_value=current),
+            mock.patch.object(CREW, "require_preflight", return_value=check),
+            mock.patch.object(CREW, "command", side_effect=local_command),
+            mock.patch("builtins.print"),
+        ):
+            CREW.cleanup(
+                argparse.Namespace(
+                    task_id="lifecycle-worker",
+                    branch=branch,
+                    superseded_by=None,
+                )
+            )
+
+        self.assertFalse(worktree.exists())
+        self.assertNotEqual(
+            subprocess.run(
+                ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+                cwd=repository,
+                check=False,
+            ).returncode,
+            0,
+        )
+        recorded = json.loads(CREW.state_path(pane).read_text(encoding="utf-8"))
+        self.assertNotIn("lifecycle-worker", recorded["workers"])
+
     def test_pi_monitor_writes_session_event_without_prompting_the_principal(self) -> None:
         pane = "pane:pi"
         CREW.write_json(

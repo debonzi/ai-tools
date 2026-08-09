@@ -18,7 +18,9 @@ python3 <skill-directory>/scripts/db11-crew <command> [arguments]
 
 Do not assume that `db11-crew` is installed in `PATH`.
 
-Before the first dispatch, if any external prerequisite or the official Herdr Pi integration is missing, stop and ask the user to explicitly invoke `/skill:db11-crew-setup`. Never run integration installation from this skill.
+Before the first dispatch, run `pi list --no-approve` and verify that the intended DB11 package is present in the expected scope. If the list, current resource catalog, or known top-level Pi resource paths expose a former DBZ Crew or aggregate package, filter, `dbz-crew`, `dbz-crew-setup`, `dbz-ai-tools-setup`, or `dbz-crew-events` resource, stop and ask the user to finish the former workers and explicitly invoke `/skill:db11-crew-setup`. The setup workflow performs bounded stale-resource checks and provides migration guidance. A preserved `~/.local/state/dbz-crew` tree alone is rollback state, not an installed resource: do not inspect, migrate, chmod, follow, overwrite, or delete it.
+
+If any external prerequisite or the official Herdr Pi integration is missing, stop and ask the user to explicitly invoke `/skill:db11-crew-setup`. Never run integration installation from this skill.
 
 ## Dispatch
 
@@ -47,7 +49,7 @@ Every worker must finish with `DB11-CREW RESULT:` including summary, validation,
 
 ## Completion and local Git lifecycle
 
-The monitor delivers completion to the original principal session as a follow-up. Report the result and wait for the user's explicit direction; never automatically rebase or merge.
+The monitor writes a private DB11 result and completion event. The required extension validates the event and result, delivers completion only to the original principal session as a follow-up, and records a `db11-crew-event-delivered` entry for idempotency. Former DBZ events and delivered markers are outside this protocol. Report the result and wait for the user's explicit direction; never automatically rebase, merge, or clean up.
 
 Successful isolated read-only workers are cleaned up automatically after their result is captured. If validation detects changes, DB11 Crew retains the tab, worktree, and branch for inspection. In-place read-only tabs are closed automatically after result capture.
 
