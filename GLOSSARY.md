@@ -2,49 +2,13 @@
 
 This glossary is the canonical source for project terminology. Use its terms consistently when discussing relationships within or between repository components and when writing plans, documentation, user-facing text, code comments, or new identifiers. Established identifiers may retain legacy terminology when changing them would break compatibility.
 
-## DB11 Crew
-
-### Crewlead
-
-The designated interactive Pi session at the center of a DB11 Crew. The term identifies the session's role, not the requester, a human operator, or a generic agent. It distinguishes this session from other sessions participating in the crew without prescribing its detailed behavior or responsibilities.
-
-Use **Crewlead** as one word in prose and `crewlead` in identifiers. Avoid **crew lead**, **crew leader**, **crewleader**, **main session**, **primary session**, and **principal session** as names for this concept.
-
-### Scout
-
-A specialized, read-only crew member that performs a bounded reconnaissance or investigation for the Crewlead. A Scout may inspect workspace code and documentation on the current branch, whether the workspace is clean or dirty, and may research public web sources. Scouts may run in parallel and may use temporary worktrees or other isolated temporary state when necessary.
-
-A Scout never implements a solution or modifies project content. Its report gives the Crewlead only the conclusions, essential verifiable evidence, uncertainties or gaps, relevant risks, and recommended next steps. Raw exploration, discarded paths, and information already condensed into the findings remain outside the Crewlead's context unless they are necessary to verify or use a finding.
-
-Use **Scout** in prose and `scout` in identifiers.
-
-### Planner
-
-A specialized crew member that turns bounded instructions, Wyrd tickets, or Wyrd tasks into detailed implementation plans recorded as Wyrd tasks. A Planner may inspect project content but never changes that content, implements the solution, or starts a Builder. Its only project-state mutations are the ticket and task changes required to persist the plan.
-
-A Planner defines the implementation scope, ordered steps, dependencies, constraints, validation, and acceptance criteria. It reports only a compact summary, task identifiers and ordering, and unresolved decisions to the Crewlead; operational detail remains in the tasks for a Builder to execute later.
-
-A Builder follows the recorded plan without redesigning or expanding it. If the plan is unsafe, contradictory, stale, or infeasible, the Builder stops and reports the blocker instead of improvising or following it blindly.
-
-Use **Planner** in prose and `planner` in identifiers.
-
-### Builder
-
-A specialized crew member that creates an implementation from a bounded Wyrd task or direct instruction received from the Crewlead. A Builder may modify project content and is responsible for validating the resulting implementation.
-
-When given a planned task, a Builder follows it as recorded without redesigning it or expanding its scope. When given a direct instruction, it may make necessary local tactical decisions but may not expand the scope or make architectural decisions independently. It stops and reports a blocker when its input is unsafe, contradictory, stale, infeasible, or insufficient instead of improvising beyond these boundaries.
-
-A Builder reports a compact implementation and validation outcome to the Crewlead; low-value execution detail remains outside the Crewlead's context.
-
-Use **Builder** in prose and `builder` in identifiers. Avoid **worker** as the canonical name for this role; established compatibility-sensitive identifiers may retain it.
-
 ## DB11 Plan Protocol
 
 ### DB11 Plan
 
-A durable, topic-by-topic deliberation that researches one problem, materializes its material decisions in one standalone Wyrd ticket, and records explicit requester acceptance without depending on conversational history. DB11 Plan produces an accepted planning conclusion but does not itself implement that conclusion, start a Journey, or delegate DB11 Crew members.
+A durable, topic-by-topic deliberation that researches one problem, materializes its material decisions in one standalone Wyrd ticket, and records explicit requester acceptance without depending on conversational history. DB11 Plan produces an accepted planning conclusion but does not itself implement that conclusion, start a Journey, or delegate work to other agents.
 
-Use **DB11 Plan** in prose and `db11-plan` for the skill and identifiers. A DB11 Plan is not a generic implementation plan, Pi session, Journey, or DB11 Crew member.
+Use **DB11 Plan** in prose and `db11-plan` for the skill and identifiers. A DB11 Plan is not a generic implementation plan, Pi session, Journey, or agent role.
 
 ### Plan Ticket
 
@@ -70,7 +34,7 @@ Use **Plan Conclusion** in DB11 Plan prose and `plan_conclusion` in identifiers.
 
 A durable, multi-session development initiative conducted through the Journey Protocol. A Journey is identified in Wyrd by one stable `journey:<codename>` label, while its phase tickets, tasks, dependencies, and conclusions hold the state required to resume it without conversational history.
 
-Use **Journey** in prose and `journey` in identifiers. A Journey is not a DB11 Crew member, Pi session, ticket, or autonomous orchestrator.
+Use **Journey** in prose and `journey` in identifiers. A Journey is not an agent role, Pi session, ticket, or autonomous orchestrator.
 
 ### Destination
 

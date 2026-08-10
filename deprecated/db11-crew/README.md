@@ -1,5 +1,8 @@
 # @debonzi/db11-crew
 
+> [!WARNING]
+> This package is deprecated and excluded from the repository's active workspaces and release automation. The content below is preserved only as historical documentation for its final source state.
+
 DB11 Crew delegates explicitly requested work from Pi to Herdr-managed Pi workers. It is intended for interactive Pi sessions in Git repositories where the requester has explicitly asked for delegation or parallel work.
 
 The [`db11-crew` skill](skills/db11-crew/SKILL.md), its bundled [CLI and reference](skills/db11-crew/references/CLI.md), the explicit [`db11-crew-setup` skill](skills/db11-crew-setup/SKILL.md), and the [`db11-crew-events` extension](agents/pi/extensions/db11-crew-events/README.md) form one package. They are intentionally released together because they share a private state protocol, completion-event schema, security model, and lifecycle contract.

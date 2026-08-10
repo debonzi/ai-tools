@@ -28,7 +28,7 @@ Plan Ticket and its Plan Topics hold the recoverable state.
 - Research discoverable context before asking the requester. Do not make material
   product or technical decisions on the requester's behalf.
 - Do not implement the planned solution, modify production content, start a Journey,
-  or dispatch DB11 Crew members unless separately and explicitly requested.
+  or delegate work to other agents unless separately and explicitly requested.
 - Follow project instructions for the language of durable artifacts. Follow the
   requester's language in conversation when those instructions do not require
   otherwise.

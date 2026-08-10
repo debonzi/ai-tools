@@ -16,15 +16,15 @@ RELEASE_IDENTITY := python3 scripts/release_identity.py
 help:
 	@printf '%s\n' \
 	  'Release targets:' \
-	  '  make release-info PACKAGE=db11-crew VERSION=X.Y.Z       Validate and print the fixed package identity.' \
-	  '  make release-preflight PACKAGE=db11-crew VERSION=X.Y.Z  Verify branch, worktree, manifest, remote main, and tag availability.' \
-	  '  make release-prepare                                    Apply pending Changesets and synchronize package-lock.json.' \
-	  '  make release-commit                                     Commit only release metadata created by release-prepare.' \
-	  '  make release-check PACKAGE=db11-crew VERSION=X.Y.Z      Install dependencies and run all validation before tagging.' \
-	  '  make release-tag PACKAGE=db11-crew VERSION=X.Y.Z        Create the selected package-qualified annotated tag.' \
-	  '  make release-push PACKAGE=db11-crew VERSION=X.Y.Z       Atomically push main and only the selected tag.' \
+	  '  make release-info PACKAGE=db11-skills VERSION=X.Y.Z       Validate and print the fixed package identity.' \
+	  '  make release-preflight PACKAGE=db11-skills VERSION=X.Y.Z  Verify branch, worktree, manifest, remote main, and tag availability.' \
+	  '  make release-prepare                                     Apply pending Changesets and synchronize package-lock.json.' \
+	  '  make release-commit                                      Commit only release metadata created by release-prepare.' \
+	  '  make release-check PACKAGE=db11-skills VERSION=X.Y.Z      Install dependencies and run all validation before tagging.' \
+	  '  make release-tag PACKAGE=db11-skills VERSION=X.Y.Z        Create the selected package-qualified annotated tag.' \
+	  '  make release-push PACKAGE=db11-skills VERSION=X.Y.Z       Atomically push main and only the selected tag.' \
 	  '' \
-	  'PACKAGE must be db11-skills, db11-crew, or pi-codex-usage.' \
+	  'PACKAGE must be db11-skills or pi-codex-usage.' \
 	  'Local release targets never publish npm packages.' \
 	  'Override REMOTE=origin or BRANCH=main only when repository policy requires it.'
 
@@ -117,8 +117,6 @@ release-commit:
 	    ' M:package-lock.json'|\
 	    ' M:packages/db11-skills/package.json'|\
 	    ' M:packages/db11-skills/CHANGELOG.md'|\
-	    ' M:packages/db11-crew/package.json'|\
-	    ' M:packages/db11-crew/CHANGELOG.md'|\
 	    ' M:packages/pi-codex-usage/package.json'|\
 	    ' M:packages/pi-codex-usage/CHANGELOG.md') ;; \
 	    ' D:.changeset/'*.md) \
@@ -137,7 +135,7 @@ release-commit:
 	  exit 1; \
 	fi; \
 	updated=0; \
-	for workspace in db11-skills db11-crew pi-codex-usage; do \
+	for workspace in db11-skills pi-codex-usage; do \
 	  manifest="packages/$$workspace/package.json"; \
 	  changelog="packages/$$workspace/CHANGELOG.md"; \
 	  manifest_changed=0; changelog_changed=0; \
@@ -155,7 +153,6 @@ release-commit:
 	fi
 	git add package-lock.json \
 	  packages/db11-skills/package.json packages/db11-skills/CHANGELOG.md \
-	  packages/db11-crew/package.json packages/db11-crew/CHANGELOG.md \
 	  packages/pi-codex-usage/package.json packages/pi-codex-usage/CHANGELOG.md
 	git add -u -- .changeset
 	git diff --cached --check

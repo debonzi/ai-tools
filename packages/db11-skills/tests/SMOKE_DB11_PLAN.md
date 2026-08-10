@@ -2,7 +2,7 @@
 
 Use a disposable local repository with an initialized Wyrd project. This procedure
 does not authorize remote access, package publication, implementation of the planned
-outcome, DB11 Crew delegation, or changes to unrelated Wyrd tickets.
+outcome, delegation to other agents, or changes to unrelated Wyrd tickets.
 
 ## 1. Skill discovery
 
@@ -97,8 +97,8 @@ acceptance, the Plan Ticket must remain open.
 
 Request one revision and confirm the ticket remains open. Then accept the complete Plan
 Conclusion and verify the agent persists it, appends the conclusion decision-log entry,
-completes the Plan Ticket, and does not start implementation, a Journey, or a DB11 Crew
-member.
+completes the Plan Ticket, and does not start implementation, a Journey, or delegation
+to another agent.
 
 ## 8. Guardrail checks
 

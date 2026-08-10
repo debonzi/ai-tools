@@ -19,8 +19,8 @@ dependencies, conclusions, and progress.
   proposal.
 - Start or advance a Journey only when the requester explicitly asks for that
   transition.
-- Never dispatch DB11 Crew members automatically. Delegation requires a separate,
-  explicit request and the DB11 Crew skill.
+- Never delegate work to other agents automatically. Delegation requires a separate,
+  explicit request and an available delegation mechanism.
 - Keep Definition and Planning free of production implementation. Keep
   Implementation within the accepted plan and report material uncertainty instead of
   silently redesigning it.

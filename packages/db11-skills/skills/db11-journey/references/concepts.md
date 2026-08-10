@@ -10,9 +10,9 @@ on conversational history. It separates definition, technical planning, and
 implementation while allowing each phase to create the bounded work needed to close
 itself.
 
-The protocol is not an autonomous orchestrator or a DB11 Crew member. The
-`db11-journey` skill interprets the protocol, Wyrd holds durable state, and DB11 Crew
-may execute explicitly delegated work.
+The protocol is not an autonomous orchestrator or an agent role. The
+`db11-journey` skill interprets the protocol, Wyrd holds durable state, and any
+separately requested delegation remains outside the protocol.
 
 ## Lifecycle
 

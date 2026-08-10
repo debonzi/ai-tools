@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "db11-skills-v*"
-      - "db11-crew-v*"
       - "pi-codex-usage-v*"
 
 permissions:

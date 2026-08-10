@@ -25,11 +25,6 @@ PACKAGE_IDENTITIES = {
         workspace="packages/db11-skills",
         npm_name="@debonzi/db11-skills",
     ),
-    "db11-crew": PackageIdentity(
-        selector="db11-crew",
-        workspace="packages/db11-crew",
-        npm_name="@debonzi/db11-crew",
-    ),
     "pi-codex-usage": PackageIdentity(
         selector="pi-codex-usage",
         workspace="packages/pi-codex-usage",
@@ -73,8 +68,7 @@ def parse_tag(tag: str) -> dict[str, str]:
     match = TAG_PATTERN.fullmatch(tag)
     if match is None:
         raise IdentityError(
-            "Release tag must be db11-skills-vX.Y.Z, db11-crew-vX.Y.Z, or "
-            "pi-codex-usage-vX.Y.Z."
+            "Release tag must be db11-skills-vX.Y.Z or pi-codex-usage-vX.Y.Z."
         )
     selector, version = match.group(1), match.group(2)
     result = resolve_selector(selector, version)

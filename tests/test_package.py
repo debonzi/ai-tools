@@ -44,27 +44,6 @@ EXPECTED_WORKSPACES = {
             "skills/db11-journey/references/phases/definition.md",
             "skills/db11-journey/references/phases/planning.md",
             "skills/db11-journey/references/phases/implementation.md",
-            "skills/db11-spec/SKILL.md",
-            "skills/db11-spec/agents/openai.yaml",
-        },
-    },
-    "db11-crew": {
-        "name": "@debonzi/db11-crew",
-        "pi": {
-            "skills": ["./skills"],
-            "extensions": ["./agents/pi/extensions/db11-crew-events/index.ts"],
-        },
-        "peers": {"@earendil-works/pi-coding-agent": "*"},
-        "files": {
-            "README.md",
-            "LICENSE",
-            "CHANGELOG.md",
-            "skills/db11-crew/SKILL.md",
-            "skills/db11-crew/references/CLI.md",
-            "skills/db11-crew/scripts/db11-crew",
-            "skills/db11-crew-setup/SKILL.md",
-            "agents/pi/extensions/db11-crew-events/README.md",
-            "agents/pi/extensions/db11-crew-events/index.ts",
         },
     },
     "pi-codex-usage": {
@@ -85,10 +64,9 @@ EXPECTED_WORKSPACES = {
         },
     },
 }
-EXPECTED_SKILL_NAMES = {"db11-plan", "db11-journey", "db11-spec", "db11-crew", "db11-crew-setup"}
+EXPECTED_SKILL_NAMES = {"db11-plan", "db11-journey"}
 EXECUTABLE_PATHS = {
     "db11-skills": set(),
-    "db11-crew": {"skills/db11-crew/scripts/db11-crew"},
     "pi-codex-usage": set(),
 }
 LIFECYCLE_SCRIPTS = {
@@ -157,6 +135,12 @@ class PackageManifestTests(unittest.TestCase):
             {path.name for path in PACKAGES.iterdir() if (path / "package.json").is_file()},
             set(EXPECTED_WORKSPACES),
         )
+
+    def test_deprecated_resources_are_outside_active_workspaces(self) -> None:
+        self.assertTrue((ROOT / "deprecated/db11-crew/package.json").is_file())
+        self.assertTrue((ROOT / "deprecated/db11-spec/SKILL.md").is_file())
+        self.assertFalse((PACKAGES / "db11-crew").exists())
+        self.assertFalse((PACKAGES / "db11-skills/skills/db11-spec").exists())
 
     def test_publishable_manifests_have_exact_resource_boundaries(self) -> None:
         for directory, expected in EXPECTED_WORKSPACES.items():
@@ -279,86 +263,11 @@ class PackageManifestTests(unittest.TestCase):
             "phase:planning",
             "phase:implementation",
             "Never read or edit `.wyrd/`",
-            "Never dispatch DB11 Crew members automatically",
+            "Never delegate work to other agents automatically",
         ):
             self.assertIn(requirement, skill)
 
         self.assertLess(len(skill), 6_000)
-
-    def test_setup_is_explicit_scoped_and_confirmation_gated(self) -> None:
-        setup = (PACKAGES / "db11-crew/skills/db11-crew-setup/SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        for requirement in (
-            "disable-model-invocation: true",
-            "command -v pi",
-            "command -v python3",
-            "command -v git",
-            "command -v herdr",
-            "herdr agent start --help",
-            "herdr integration install --help",
-            "herdr integration status",
-            "herdr integration install pi",
-            "pi list --no-approve",
-            "dbz-crew-events",
-            "broken symlinks",
-            "~/.local/state/dbz-crew",
-            "explicit confirmation",
-            "/reload",
-        ):
-            self.assertIn(requirement, setup)
-        self.assertNotIn("@debonzi/dbz-ai-tools", setup)
-        self.assertNotIn("configure.py", setup)
-        self.assertFalse((ROOT / "skills/dbz-ai-tools-setup/SKILL.md").exists())
-        self.assertFalse((ROOT / "skills/dbz-ai-tools-setup/scripts/configure.py").exists())
-
-    def test_db11_crew_guidance_covers_install_cutover_events_and_lifecycle(self) -> None:
-        crew_root = PACKAGES / "db11-crew"
-        readme = (crew_root / "README.md").read_text(encoding="utf-8")
-        skill = (crew_root / "skills/db11-crew/SKILL.md").read_text(encoding="utf-8")
-        cli = (crew_root / "skills/db11-crew/references/CLI.md").read_text(encoding="utf-8")
-        extension = (
-            crew_root / "agents/pi/extensions/db11-crew-events/README.md"
-        ).read_text(encoding="utf-8")
-        smoke = (crew_root / "tests/SMOKE_DB11_CREW.md").read_text(encoding="utf-8")
-
-        for requirement in (
-            "For a clean installation",
-            "hard namespace cutover",
-            "pi list --no-approve",
-            "db11-crew-event-delivered",
-            "Rebase, local non-fast-forward integration, and cleanup",
-            "~/.local/state/dbz-crew",
-        ):
-            self.assertIn(requirement, readme)
-        for requirement in (
-            "pi list --no-approve",
-            "dbz-crew-events",
-            "preserved `~/.local/state/dbz-crew`",
-            "delivers completion only to the original principal session as a follow-up",
-        ):
-            self.assertIn(requirement, skill)
-        for requirement in (
-            "## Implementation lifecycle",
-            "local non-fast-forward merge",
-            "There is no state migration or bridge",
-            "Former delivered markers do not acknowledge DB11 events",
-        ):
-            self.assertIn(requirement, cli)
-        for requirement in (
-            "never reads or changes `~/.local/state/dbz-crew`",
-            "does not treat `dbz-crew-event-delivered` entries as DB11 acknowledgements",
-            "at least once",
-        ):
-            self.assertIn(requirement, extension)
-        for heading in (
-            "## 1. Automated baseline and clean package installation",
-            "## 2. Installed-resource and cutover audit",
-            "## 3. Hard-cutover and untouched-state checks",
-            "## 4. Interactive implementation lifecycle and event delivery",
-            "## 5. Read-only lifecycle",
-        ):
-            self.assertIn(heading, smoke)
 
     def test_bundled_python_entry_points_remain_executable(self) -> None:
         for directory, paths in EXECUTABLE_PATHS.items():
@@ -449,6 +358,9 @@ class PackageArchiveTests(unittest.TestCase):
                     self.assertNotIn("smoke_db11_crew.md", lowered)
                     self.assertNotIn("trust.json", lowered)
                     self.assertNotIn("dbz-ai-tools-setup", lowered)
+                    self.assertNotIn("skills/db11-spec", lowered)
+                    self.assertNotIn("skills/db11-crew", lowered)
+                    self.assertNotIn("extensions/db11-crew-events", lowered)
                     self.assertNotIn("skills/dbz-crew", lowered)
                     self.assertNotIn("skills/dbz-crew-setup", lowered)
                     self.assertNotIn("extensions/dbz-crew-events", lowered)

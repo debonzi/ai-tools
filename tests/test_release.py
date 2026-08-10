@@ -18,7 +18,6 @@ SPEC.loader.exec_module(RELEASE_IDENTITY)
 
 EXPECTED = {
     "db11-skills": ("packages/db11-skills", "@debonzi/db11-skills"),
-    "db11-crew": ("packages/db11-crew", "@debonzi/db11-crew"),
     "pi-codex-usage": ("packages/pi-codex-usage", "@debonzi/pi-codex-usage"),
 }
 
@@ -48,6 +47,7 @@ class ReleaseIdentityTests(unittest.TestCase):
             "dbz-skills-v1.2.3",
             "dbz-crew-v1.2.3",
             "unknown-v1.2.3",
+            "db11-crew-v1.2.3",
             "db11-crew-v01.2.3",
             "db11-crew-v1.2",
             "db11-crew-v1.2.3-beta.1",
@@ -56,7 +56,7 @@ class ReleaseIdentityTests(unittest.TestCase):
         for tag in invalid_tags:
             with self.subTest(tag=tag), self.assertRaises(RELEASE_IDENTITY.IdentityError):
                 RELEASE_IDENTITY.parse_tag(tag)
-        for selector in ("dbz-ai-tools-workspace", "dbz-skills", "dbz-crew"):
+        for selector in ("dbz-ai-tools-workspace", "dbz-skills", "dbz-crew", "db11-crew"):
             with self.subTest(selector=selector), self.assertRaises(
                 RELEASE_IDENTITY.IdentityError
             ):
@@ -64,24 +64,25 @@ class ReleaseIdentityTests(unittest.TestCase):
 
     def test_nonmutating_make_identity_check_validates_manifest_version(self) -> None:
         current_version = json.loads(
-            (ROOT / "packages/db11-crew/package.json").read_text(encoding="utf-8")
+            (ROOT / "packages/db11-skills/package.json").read_text(encoding="utf-8")
         )["version"]
         valid = subprocess.run(
-            ["make", "release-info", "PACKAGE=db11-crew", f"VERSION={current_version}"],
+            ["make", "release-info", "PACKAGE=db11-skills", f"VERSION={current_version}"],
             cwd=ROOT,
             capture_output=True,
             text=True,
             check=False,
         )
         self.assertEqual(valid.returncode, 0, valid.stderr or valid.stdout)
-        self.assertIn("workspace: packages/db11-crew", valid.stdout)
-        self.assertIn(f"tag: db11-crew-v{current_version}", valid.stdout)
+        self.assertIn("workspace: packages/db11-skills", valid.stdout)
+        self.assertIn(f"tag: db11-skills-v{current_version}", valid.stdout)
 
         for arguments in (
             ["PACKAGE=unknown", f"VERSION={current_version}"],
             ["PACKAGE=dbz-crew", f"VERSION={current_version}"],
-            ["PACKAGE=db11-crew", "VERSION=999.999.999"],
-            ["PACKAGE=db11-crew", "VERSION=01.2.3"],
+            ["PACKAGE=db11-crew", f"VERSION={current_version}"],
+            ["PACKAGE=db11-skills", "VERSION=999.999.999"],
+            ["PACKAGE=db11-skills", "VERSION=01.2.3"],
         ):
             with self.subTest(arguments=arguments):
                 result = subprocess.run(

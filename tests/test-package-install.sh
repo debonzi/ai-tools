@@ -52,7 +52,6 @@ PY
         export PI_CODING_AGENT_SESSION_DIR="$case_root/sessions"
         export PI_OFFLINE=1
         export GIT_TERMINAL_PROMPT=0
-        unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID DB11_CREW_STATE_DIR DBZ_CREW_STATE_DIR
         cd "$work_dir"
 
         pi install "$package_root" >/dev/null
@@ -103,10 +102,8 @@ assert not trust_path.exists(), "package installation must not create a trust de
 
 pi_list = pi_list_path.read_text(encoding="utf-8")
 assert str(package_root) in pi_list, pi_list
+assert "db11-crew" not in pi_list.lower(), pi_list
 assert "dbz-crew" not in pi_list.lower(), pi_list
-assert not (home / ".local/bin/db11-crew").exists(), "the bundled CLI must not be installed in PATH"
-assert not (home / ".local/state/db11-crew").exists(), "inert clean install must not create runtime state"
-assert not (home / ".local/state/dbz-crew").exists(), "clean install must not create legacy state"
 
 records = [json.loads(line) for line in rpc_path.read_text(encoding="utf-8").splitlines() if line]
 assert not [record for record in records if record.get("type") == "extension_error"], records
@@ -126,23 +123,8 @@ owned = {
 
 if selector == "db11-skills":
     assert manifest["pi"] == {"skills": ["./skills"]}
-    assert set(owned) == {"skill:db11-plan", "skill:db11-journey", "skill:db11-spec"}, owned
+    assert set(owned) == {"skill:db11-plan", "skill:db11-journey"}, owned
     assert all(command["source"] == "skill" for command in owned.values())
-elif selector == "db11-crew":
-    assert manifest["pi"] == {
-        "skills": ["./skills"],
-        "extensions": ["./agents/pi/extensions/db11-crew-events/index.ts"],
-    }
-    assert set(owned) == {"skill:db11-crew", "skill:db11-crew-setup"}, owned
-    assert all(command["source"] == "skill" for command in owned.values())
-    assert (package_root / manifest["pi"]["extensions"][0]).is_file()
-    for stale in (
-        "skills/dbz-crew",
-        "skills/dbz-crew-setup",
-        "skills/dbz-ai-tools-setup",
-        "agents/pi/extensions/dbz-crew-events",
-    ):
-        assert not (package_root / stale).exists(), stale
 elif selector == "pi-codex-usage":
     assert manifest["pi"] == {
         "extensions": ["./agents/pi/extensions/codex-usage/index.ts"],
@@ -154,7 +136,10 @@ else:
 
 command_names = {command["name"] for command in commands}
 assert {
+    "skill:db11-crew",
+    "skill:db11-crew-setup",
     "skill:db11-issues",
+    "skill:db11-spec",
     "skill:dbz-crew",
     "skill:dbz-crew-setup",
     "skill:dbz-ai-tools-setup",
@@ -166,7 +151,6 @@ PY
 }
 
 run_package_test db11-skills @debonzi/db11-skills
-run_package_test db11-crew @debonzi/db11-crew
 run_package_test pi-codex-usage @debonzi/pi-codex-usage
 
 printf '%s\n' 'All isolated Pi package installation tests passed.'
