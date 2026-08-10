@@ -38,6 +38,32 @@ A Builder reports a compact implementation and validation outcome to the Crewlea
 
 Use **Builder** in prose and `builder` in identifiers. Avoid **worker** as the canonical name for this role; established compatibility-sensitive identifiers may retain it.
 
+## DB11 Plan Protocol
+
+### DB11 Plan
+
+A durable, topic-by-topic deliberation that researches one problem, materializes its material decisions in one standalone Wyrd ticket, and records explicit requester acceptance without depending on conversational history. DB11 Plan produces an accepted planning conclusion but does not itself implement that conclusion, start a Journey, or delegate DB11 Crew members.
+
+Use **DB11 Plan** in prose and `db11-plan` for the skill and identifiers. A DB11 Plan is not a generic implementation plan, Pi session, Journey, or DB11 Crew member.
+
+### Plan Ticket
+
+The standalone Wyrd ticket that holds one DB11 Plan's objective, constraints, inspected sources, initial findings, topic map, compact decision log, and final Plan Conclusion. A Plan Ticket has no protocol-required labels, dependencies, or relationships to other tickets; its Wyrd ID is the durable resume identity.
+
+Use **Plan Ticket** in DB11 Plan prose and `plan_ticket` in identifiers.
+
+### Plan Topic
+
+One material decision in a DB11 Plan, represented by a child Wyrd task under the Plan Ticket. A Plan Topic is discussed separately, may receive multiple clarifications or proposal revisions, and completes only after its accepted decisions are durably recorded. It is not an implementation task or dependency-ordered work item.
+
+Use **Plan Topic** in DB11 Plan prose and `plan_topic` in identifiers.
+
+### Plan Conclusion
+
+The requester-accepted synthesis of a DB11 Plan's decisions, constraints, retained trade-offs, deferred decisions, and boundaries for subsequent work. It is persisted in the Plan Ticket before that ticket completes and excludes raw exploration and superseded proposals.
+
+Use **Plan Conclusion** in DB11 Plan prose and `plan_conclusion` in identifiers.
+
 ## Journey Protocol
 
 ### Journey

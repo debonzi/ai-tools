@@ -21,6 +21,18 @@ EXPECTED_WORKSPACES = {
             "README.md",
             "LICENSE",
             "CHANGELOG.md",
+            "skills/db11-plan/SKILL.md",
+            "skills/db11-plan/agents/openai.yaml",
+            "skills/db11-plan/assets/ticket-body.md",
+            "skills/db11-plan/assets/topic-task-body.md",
+            "skills/db11-plan/references/protocol.md",
+            "skills/db11-plan/references/wyrd-model.md",
+            "skills/db11-plan/references/conversation-format.md",
+            "skills/db11-plan/references/operations/start.md",
+            "skills/db11-plan/references/operations/resume.md",
+            "skills/db11-plan/references/operations/status.md",
+            "skills/db11-plan/references/operations/discuss.md",
+            "skills/db11-plan/references/operations/conclude.md",
             "skills/db11-journey/SKILL.md",
             "skills/db11-journey/agents/openai.yaml",
             "skills/db11-journey/references/concepts.md",
@@ -73,7 +85,7 @@ EXPECTED_WORKSPACES = {
         },
     },
 }
-EXPECTED_SKILL_NAMES = {"db11-journey", "db11-spec", "db11-crew", "db11-crew-setup"}
+EXPECTED_SKILL_NAMES = {"db11-plan", "db11-journey", "db11-spec", "db11-crew", "db11-crew-setup"}
 EXECUTABLE_PATHS = {
     "db11-skills": set(),
     "db11-crew": {"skills/db11-crew/scripts/db11-crew"},
