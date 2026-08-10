@@ -4,13 +4,17 @@ Load this reference before creating or changing DB11 Plan resources.
 
 ## Resource model
 
-A DB11 Plan uses exactly one standalone Plan Ticket and one child Wyrd task per Plan Topic.
-It uses no protocol labels and no ticket or task dependencies. The ticket ID is the
-resume identity.
+A DB11 Plan uses exactly one standalone Plan Ticket and one child Wyrd task per Plan
+Topic. Every newly created Plan Ticket and Plan Topic has the canonical
+`protocol:db11_plan` label. The label satisfies Wyrd's 20-character limit and label
+syntax. DB11 Plan uses no ticket or task dependencies. The ticket ID remains the resume
+identity.
 
-The ticket body must contain `Protocol: DB11 Plan` in its Tracking section so a resume
-operation can validate the target. This marker is descriptive, not a substitute for
-viewing the explicitly named ticket.
+The label is a discovery index, not sufficient proof that a resource belongs to the
+protocol. The ticket body must contain `Protocol: DB11 Plan` in its Tracking section so
+an operation can validate a candidate. A task is a Plan Topic only when it belongs to a
+validated Plan Ticket and its body represents a topic. A label on an unrelated ticket
+or task does not make it a DB11 Plan resource.
 
 ## Plan Ticket title and body
 
@@ -38,28 +42,35 @@ Use only Wyrd CLI commands and prefer summaries:
 
 ```text
 wyrd status --json
+wyrd ticket list --status open --label protocol:db11_plan --summary --json
+wyrd ticket list --status all --text "Protocol: DB11 Plan" --summary --json
 wyrd ticket view <ticket-id> --json
 wyrd task list --ticket <ticket-id> --status open --summary --json
 wyrd task list --ticket <ticket-id> --status all --summary --json
 wyrd task view <ticket.task> --json
 ```
 
-Do not list or inspect unrelated tickets. Use `--status all` for topic history,
-conclusion readiness, or inconsistency diagnosis; use `--status open` during ordinary
-continuation.
+For operations with an explicit ID, view only that ticket. Use targeted ticket-list
+queries only for read-only inventory or legacy discovery, deduplicate candidates by ID,
+and validate their complete bodies before reporting them as DB11 Plans. Use `--status
+all` for requested terminal history, topic history, conclusion readiness, or
+inconsistency diagnosis; use `--status open` during ordinary continuation and default
+inventory.
 
 ## Safe creates
 
 Use `--body-file -` or a private temporary UTF-8 file for Markdown bodies:
 
 ```text
-wyrd ticket create --title <title> --body-file - --json
-wyrd task create --ticket <ticket-id> --title <title> --body-file - --json
+wyrd ticket create --title <title> --body-file - --label protocol:db11_plan --json
+wyrd task create --ticket <ticket-id> --title <title> --body-file - \
+  --label protocol:db11_plan --json
 ```
 
-Create Plan Topic tasks in intended discussion order. Do not add labels or dependencies.
-After all tasks exist, re-read the ticket and use an optimistic edit to add their IDs
-to the topic map.
+Create Plan Topic tasks in intended discussion order with the canonical label and no
+dependencies. This also applies to a correction or newly discovered topic added to a
+legacy Plan Ticket. After all tasks exist, re-read the ticket and use an optimistic
+edit to add their IDs to the topic map.
 
 If creation fails partway, stop and report the exact created resources. A later resume
 must reconcile the ticket topic map with existing child tasks before creating anything
@@ -76,6 +87,22 @@ wyrd ticket edit <ticket-id> --body-file - --expected-revision <revision> --json
 
 On `revision_conflict`, re-read and reconcile. Never overwrite concurrent changes.
 Keep edits minimal in meaning even when Wyrd requires replacing the complete body.
+Do not add a missing protocol label as an incidental part of status, resume, discussion,
+or conclusion. Label migration is a separate mutation and requires explicit requester
+authorization.
+
+## Legacy compatibility
+
+A ticket with the protocol marker but without `protocol:db11_plan` may predate the label
+requirement. Explicit-ID operations may treat it as a legacy Plan Ticket after validating
+its body and child tasks. Report its missing label instead of rejecting it or mutating
+it automatically. Missing labels on its existing Plan Topics receive the same treatment.
+
+Read-only inventory may supplement label discovery with an exact text search for the
+protocol marker. Text matches are only candidates and require complete-body validation.
+A candidate with the label but without the marker is inconsistent, not a Plan Ticket.
+Wyrd cannot edit terminal resources, so do not promise complete backfill of legacy
+plans.
 
 ## Terminal transitions
 
@@ -110,13 +137,17 @@ With `--json`, branch on `error.code`, not human message text.
 
 ## Consistency checks
 
-A healthy active DB11 Plan has:
+A healthy newly created active DB11 Plan has:
 
-- one open standalone Plan Ticket with the protocol marker;
+- one open standalone Plan Ticket with `protocol:db11_plan` and the protocol marker;
+- every Plan Topic carrying `protocol:db11_plan` under that ticket;
 - zero or more terminal topics followed by open topics in numeric order;
 - at most one open task whose body says `In discussion`;
-- no labels or dependencies required by the protocol;
+- no protocol-created dependencies;
 - a ticket decision-log entry for every completed or dismissed topic;
 - no completed topic whose Accepted decisions section is empty.
 
-Stop and report discrepancies instead of repairing or reordering them silently.
+A missing expected label is a legacy or consistency warning: do not exclude the resource
+from counts, repair it silently, or treat the label as a substitute for body and parent
+validation. A label without the ticket marker is an identity inconsistency. Stop and
+report other discrepancies instead of repairing or reordering them silently.

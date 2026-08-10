@@ -9,11 +9,17 @@ completion before requester review.
 From fresh Wyrd reads, confirm:
 
 - the ticket is open and contains `Protocol: DB11 Plan`;
+- the ticket and topics have the canonical label, or any missing labels are accounted
+  for and reported as legacy or consistency warnings;
 - every Plan Topic task is completed or explicitly dismissed;
 - every completed topic has normative Accepted decisions;
 - every terminal topic has a corresponding ticket decision-log entry;
 - no unresolved material blocker or acceptance point remains;
 - no unexpected dependency or relationship changes the standalone scope.
+
+The label alone never satisfies the protocol-marker check. Do not repair missing labels
+as part of conclusion, and do not exclude unlabeled legacy topics from the completion
+gate.
 
 If any topic remains open, report it and resume discussion instead of weakening the
 completion gate.

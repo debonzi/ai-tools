@@ -84,14 +84,19 @@ the decision topic itself is no longer needed.
 
 ## Status response
 
-Keep status read-only and compact:
+Keep status read-only and compact. For one Plan Ticket, report:
 
 - ticket title and ID;
 - completed, dismissed, and open counts;
 - current topic;
 - pending topic titles;
-- blockers or consistency warnings;
+- legacy state, missing labels, blockers, or other consistency warnings;
 - recommended next operation.
+
+For inventory without an ID, report the validated plan count and one compact line per
+Plan Ticket with title, ID, status, topic counts, and current topic. Separate
+marker-only legacy plans and labeled candidates that fail marker validation. Never
+select a plan for mutation on the requester's behalf.
 
 ## Plan Conclusion response
 

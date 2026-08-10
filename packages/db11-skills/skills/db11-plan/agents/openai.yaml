@@ -1,4 +1,4 @@
 interface:
   display_name: "DB11 Plan"
-  short_description: "Run durable topic-by-topic planning"
-  default_prompt: "Use $db11-plan to start or resume a durable, Wyrd-backed planning and decision session."
+  short_description: "Plan and report durable DB11 decisions"
+  default_prompt: "Use $db11-plan to start, inventory, report, or resume a durable, Wyrd-backed planning and decision session."

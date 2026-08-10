@@ -43,12 +43,12 @@ encode implementation sequencing as task dependencies.
 
 ## Create the ticket
 
-Create one open ticket with the body template from `../../assets/ticket-body.md`.
-Include the protocol marker, objective, constraints, sources, initial findings,
-candidate direction, and the topic titles. State explicitly that candidate content is
-unaccepted.
+Create one open ticket with the body template from `../../assets/ticket-body.md` and
+the canonical `protocol:db11_plan` label. Include the protocol marker, objective,
+constraints, sources, initial findings, candidate direction, and the topic titles.
+State explicitly that candidate content is unaccepted.
 
-Use no labels and create no dependencies or relationships to existing tickets.
+Create no dependencies or relationships to existing tickets.
 
 ## Create the topic tasks
 
@@ -56,6 +56,7 @@ Create one task per topic in discussion order using
 `../../assets/topic-task-body.md`.
 
 - Give every task a bounded decision-oriented title and Scope.
+- Add `protocol:db11_plan` to every task at creation.
 - Keep later tasks `Not discussed` and do not invent detailed proposals prematurely.
 - Fill the first task's evidence, proposal, alternatives, and acceptance points, and
   mark it `In discussion`.
@@ -67,8 +68,9 @@ partial state; do not roll forward speculatively or delete successful resources.
 
 ## Verify and report
 
-Re-read the ticket and all open task summaries. Verify that task order matches the
-topic map and that only the first task is in discussion.
+Re-read the ticket and all open task summaries. Verify that the ticket and every task
+carry `protocol:db11_plan`, task order matches the topic map, and only the first task is
+in discussion.
 
 Then report:
 

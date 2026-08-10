@@ -24,9 +24,11 @@ Confirm the agent:
 
 - inspects the reference and project instructions before asking discoverable questions;
 - runs `wyrd status --json` but does not run `wyrd init`;
-- creates one standalone Plan Ticket with `Protocol: DB11 Plan`;
-- creates one ordered Plan Topic task per material decision;
-- adds no labels or ticket/task dependencies;
+- creates one standalone Plan Ticket with `Protocol: DB11 Plan` and
+  `protocol:db11_plan`;
+- creates one ordered Plan Topic task per material decision, each with
+  `protocol:db11_plan`;
+- adds no ticket or task dependencies;
 - updates the Plan Ticket topic map with task titles and IDs;
 - marks only the first Plan Topic as in discussion;
 - presents findings, the complete topic list, a recommendation, alternatives, and
@@ -71,17 +73,34 @@ Plan Topic, and evidence required by that topic. It must recover accepted decisi
 the latest clarification, pending topic titles, and the next acceptance question
 without the old conversation.
 
-## 6. Read-only status
+## 6. Read-only status and inventory
 
-Record the Plan Ticket and current task revisions, then invoke:
+Create two more test tickets directly through Wyrd: one with `protocol:db11_plan` but
+without the Tracking marker, and one marker-only legacy Plan Ticket with an unlabeled
+Plan Topic. Record the revisions of all test resources, then invoke:
+
+```text
+/skill:db11-plan status
+```
+
+Confirm the inventory:
+
+- finds the active labeled Plan Ticket and reports its topic counts and current topic;
+- finds the marker-only ticket through legacy discovery and reports its missing labels;
+- reports the labeled ticket without the marker as an identity inconsistency rather
+  than a DB11 Plan;
+- excludes the unrelated unlabeled ticket;
+- does not select or resume any plan automatically.
+
+Then invoke:
 
 ```text
 /skill:db11-plan status <ticket-id>
 ```
 
-Confirm the response reports counts, the current and pending Plan Topics, consistency
-warnings, and the recommended next operation. Re-read both resources and confirm their
-revisions did not change.
+Confirm the detailed response reports counts, current and pending Plan Topics, label or
+other consistency warnings, and the recommended next operation. Re-read every test
+resource and confirm no revision changed during either status operation.
 
 ## 7. Conclude with a review gate
 
@@ -105,7 +124,9 @@ to another agent.
 In separate disposable attempts, confirm:
 
 - `start` outside a Wyrd project reports the missing project and never initializes one;
-- `resume` rejects a ticket without the protocol marker;
+- `resume` rejects a labeled ticket without the protocol marker;
+- explicit-ID status and resume accept a marker-only legacy Plan Ticket while warning
+  about missing labels and making no automatic migration;
 - praise and clarification are not treated as acceptance;
 - an ambiguous “accept all topics” is clarified when undisclosed topics remain;
 - a terminal Plan Topic is not reopened; a later correction becomes a new Plan Topic;

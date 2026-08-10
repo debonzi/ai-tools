@@ -9,7 +9,7 @@ A Pi package for durable topic-by-topic planning and staged development journeys
 | [`db11-plan`](skills/db11-plan/SKILL.md) | Run an explicitly invoked, durable topic-by-topic planning and decision session | Wyrd CLI 0.1.x |
 | [`db11-journey`](skills/db11-journey/SKILL.md) | Run Definition, Planning, and Implementation across sessions with durable Wyrd state | Wyrd CLI 0.1.x |
 
-Both skills use compact routing files and progressively load only the operation and protocol references relevant to the current session. Neither initializes Wyrd nor delegates work to other agents automatically. DB11 Plan uses one standalone Plan Ticket and one child task per Plan Topic; DB11 Journey uses a dependency-linked phase lifecycle. Both include OpenAI agent metadata under their respective `agents/` directories.
+Both skills use compact routing files and progressively load only the operation and protocol references relevant to the current session. Neither initializes Wyrd nor delegates work to other agents automatically. DB11 Plan uses one standalone Plan Ticket and one child task per Plan Topic, with `protocol:db11_plan` on every new protocol resource for discovery and attribution; DB11 Journey uses a dependency-linked phase lifecycle. Both include OpenAI agent metadata under their respective `agents/` directories.
 
 ## Install
 
@@ -27,7 +27,7 @@ pi install ./packages/db11-skills
 
 Pi discovers both skills under the declared `skills` resource by default. Use `pi config` to control global resource loading or `pi config -l` for project overrides.
 
-Run `/skill:db11-plan start <problem>` to create a standalone Plan Ticket and begin its first Plan Topic, `/skill:db11-plan resume <ticket-id>` to continue from durable Wyrd state, `/skill:db11-plan status <ticket-id>` for a read-only checkpoint, or `/skill:db11-plan conclude <ticket-id>` to synthesize an accepted Plan Conclusion. DB11 Plan requires explicit invocation.
+Run `/skill:db11-plan start <problem>` to create a standalone Plan Ticket and begin its first Plan Topic, `/skill:db11-plan resume <ticket-id>` to continue from durable Wyrd state, `/skill:db11-plan status [ticket-id]` for a read-only inventory or ticket checkpoint, or `/skill:db11-plan conclude <ticket-id>` to synthesize an accepted Plan Conclusion. DB11 Plan requires explicit invocation.
 
 Run `/skill:db11-journey start <codename>` to start a Journey, `/skill:db11-journey resume <codename>` to recover its bounded current context, or `/skill:db11-journey advance <codename>` to perform an explicitly requested phase transition. Pi may load other enabled skills when their descriptions match the request.
 

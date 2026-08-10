@@ -5,8 +5,10 @@ Plan ticket.
 
 ## Select safely
 
-1. Confirm the ticket is open and contains the protocol marker.
-2. List open task summaries in task-number order.
+1. Confirm the ticket is open and contains the protocol marker; verify its canonical
+   label or report marker-only legacy state without changing it.
+2. List open task summaries in task-number order and inspect their labels without
+   excluding unlabeled legacy topics.
 3. Select the requester-named task, or the lowest-numbered open task.
 4. View the complete selected task immediately before any edit.
 5. Stop if another task is already marked `In discussion` and the requester has not
@@ -73,8 +75,9 @@ the ticket until the requester explicitly invokes or requests conclusion.
 
 ## Add or retire topics
 
-Create a new topic only when a distinct material decision becomes concrete and no
-existing sibling covers it. Update the ticket topic map immediately after creation.
+Create a new topic with `protocol:db11_plan` only when a distinct material decision
+becomes concrete and no existing sibling covers it. Update the ticket topic map
+immediately after creation.
 
 Dismiss a topic only after explicit requester agreement that the topic itself is no
 longer needed. Persist the reason in Accepted decisions or Clarifications, add a

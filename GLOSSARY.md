@@ -10,15 +10,21 @@ A durable, topic-by-topic deliberation that researches one problem, materializes
 
 Use **DB11 Plan** in prose and `db11-plan` for the skill and identifiers. A DB11 Plan is not a generic implementation plan, Pi session, Journey, or agent role.
 
+### DB11 Plan Label
+
+The canonical Wyrd label `protocol:db11_plan` applied to every new Plan Ticket and Plan Topic. It is the discovery index for DB11 Plan resources, while the Plan Ticket's protocol marker and the task's parent relationship validate their roles. The label does not replace the Plan Ticket ID as the durable resume identity.
+
+Use **DB11 Plan label** in prose and `db11_plan_label` in identifiers.
+
 ### Plan Ticket
 
-The standalone Wyrd ticket that holds one DB11 Plan's objective, constraints, inspected sources, initial findings, topic map, compact decision log, and final Plan Conclusion. A Plan Ticket has no protocol-required labels, dependencies, or relationships to other tickets; its Wyrd ID is the durable resume identity.
+The standalone Wyrd ticket that holds one DB11 Plan's objective, constraints, inspected sources, initial findings, topic map, compact decision log, and final Plan Conclusion. A Plan Ticket carries the DB11 Plan label but has no protocol-required dependencies or relationships to other tickets; its Wyrd ID is the durable resume identity.
 
 Use **Plan Ticket** in DB11 Plan prose and `plan_ticket` in identifiers.
 
 ### Plan Topic
 
-One material decision in a DB11 Plan, represented by a child Wyrd task under the Plan Ticket. A Plan Topic is discussed separately, may receive multiple clarifications or proposal revisions, and completes only after its accepted decisions are durably recorded. It is not an implementation task or dependency-ordered work item.
+One material decision in a DB11 Plan, represented by a child Wyrd task under the Plan Ticket and carrying the DB11 Plan label. A Plan Topic is discussed separately, may receive multiple clarifications or proposal revisions, and completes only after its accepted decisions are durably recorded. It is not an implementation task or dependency-ordered work item.
 
 Use **Plan Topic** in DB11 Plan prose and `plan_topic` in identifiers.
 

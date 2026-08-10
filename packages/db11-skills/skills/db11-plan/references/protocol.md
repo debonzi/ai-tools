@@ -25,9 +25,10 @@ verifiable findings, hypotheses, and unresolved decisions.
 
 ### Materialize
 
-Create one standalone Plan Ticket. Derive a sufficiently complete map of material
-Plan Topics and create one child Wyrd task for each topic. Preserve the distinction
-between accepted constraints and candidate direction.
+Create one standalone Plan Ticket with the canonical `protocol:db11_plan` label.
+Derive a sufficiently complete map of material Plan Topics and create one child Wyrd
+task with the same label for each topic. Preserve the distinction between accepted
+constraints and candidate direction.
 
 ### Discuss Plan Topics
 
@@ -100,3 +101,15 @@ A fresh session can resume from:
 - evidence explicitly referenced by that task.
 
 Conversation history is never required for correctness.
+
+## Identification and discovery
+
+The shared `protocol:db11_plan` label is a discovery index, not sufficient proof of
+resource identity. A candidate Plan Ticket must also contain `Protocol: DB11 Plan` in
+its Tracking section. A candidate Plan Topic must belong to a validated Plan Ticket;
+its parent relationship and body establish its role.
+
+Read-only status may use the label to inventory plans without a ticket ID. Resume,
+discussion, and conclusion still use the explicit Plan Ticket ID. Marker-only tickets
+created before the label requirement remain valid legacy plans and must be reported as
+such rather than mutated automatically.
