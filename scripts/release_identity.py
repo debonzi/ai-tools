@@ -30,6 +30,11 @@ PACKAGE_IDENTITIES = {
         workspace="packages/pi-codex-usage",
         npm_name="@debonzi/pi-codex-usage",
     ),
+    "pi-copilot-usage": PackageIdentity(
+        selector="pi-copilot-usage",
+        workspace="packages/pi-copilot-usage",
+        npm_name="@debonzi/pi-copilot-usage",
+    ),
 }
 
 VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
@@ -67,9 +72,8 @@ def resolve_selector(selector: str, version: str) -> dict[str, str]:
 def parse_tag(tag: str) -> dict[str, str]:
     match = TAG_PATTERN.fullmatch(tag)
     if match is None:
-        raise IdentityError(
-            "Release tag must be db11-skills-vX.Y.Z or pi-codex-usage-vX.Y.Z."
-        )
+        allowed = ", ".join(f"{selector}-vX.Y.Z" for selector in PACKAGE_IDENTITIES)
+        raise IdentityError(f"Release tag must be one of: {allowed}.")
     selector, version = match.group(1), match.group(2)
     result = resolve_selector(selector, version)
     if result["tag"] != tag:

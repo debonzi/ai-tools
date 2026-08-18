@@ -19,6 +19,10 @@ SPEC.loader.exec_module(RELEASE_IDENTITY)
 EXPECTED = {
     "db11-skills": ("packages/db11-skills", "@debonzi/db11-skills"),
     "pi-codex-usage": ("packages/pi-codex-usage", "@debonzi/pi-codex-usage"),
+    "pi-copilot-usage": (
+        "packages/pi-copilot-usage",
+        "@debonzi/pi-copilot-usage",
+    ),
 }
 
 
@@ -52,6 +56,7 @@ class ReleaseIdentityTests(unittest.TestCase):
             "db11-crew-v1.2",
             "db11-crew-v1.2.3-beta.1",
             "db11-crew-v1.2.3/../../root",
+            "pi-copilot-usage-v1.2",
         )
         for tag in invalid_tags:
             with self.subTest(tag=tag), self.assertRaises(RELEASE_IDENTITY.IdentityError):
@@ -114,6 +119,10 @@ class ReleaseConfigurationTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("`/cusage` to `/usage-codex`", codex_changelog)
+        copilot_changelog = (ROOT / "packages/pi-copilot-usage/CHANGELOG.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("`/usage-copilot`", copilot_changelog)
 
     def test_ci_runs_the_supported_local_commands_without_publication(self) -> None:
         commands = re.findall(r"(?m)^\s+- run: (.+)$", self.ci_workflow)

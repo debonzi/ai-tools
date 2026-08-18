@@ -63,11 +63,30 @@ EXPECTED_WORKSPACES = {
             "agents/pi/extensions/codex-usage/index.ts",
         },
     },
+    "pi-copilot-usage": {
+        "name": "@debonzi/pi-copilot-usage",
+        "pi": {"extensions": ["./agents/pi/extensions/copilot-usage/index.ts"]},
+        "peers": {
+            "@earendil-works/pi-coding-agent": "*",
+            "@earendil-works/pi-tui": "*",
+        },
+        "files": {
+            "README.md",
+            "LICENSE",
+            "NOTICES.md",
+            "CHANGELOG.md",
+            "agents/pi/extensions/copilot-usage/README.md",
+            "agents/pi/extensions/copilot-usage/config.example.json",
+            "agents/pi/extensions/copilot-usage/core.ts",
+            "agents/pi/extensions/copilot-usage/index.ts",
+        },
+    },
 }
 EXPECTED_SKILL_NAMES = {"db11-plan", "db11-journey"}
 EXECUTABLE_PATHS = {
     "db11-skills": set(),
     "pi-codex-usage": set(),
+    "pi-copilot-usage": set(),
 }
 LIFECYCLE_SCRIPTS = {
     "preinstall",
@@ -215,6 +234,27 @@ class PackageManifestTests(unittest.TestCase):
         self.assertNotIn("DBZ resources", readme)
         self.assertIn('"User-Agent": "db11-codex-usage"', extension)
         self.assertNotIn("dbz-codex-usage", extension)
+
+    def test_pi_copilot_usage_uses_db11_active_branding(self) -> None:
+        package_root = PACKAGES / "pi-copilot-usage"
+        package = load_manifest(package_root)
+        self.assertEqual(
+            package["homepage"],
+            "https://github.com/debonzi/db11-ai-tools/tree/main/packages/pi-copilot-usage#readme",
+        )
+        self.assertEqual(
+            package["repository"],
+            {
+                "type": "git",
+                "url": "git+https://github.com/debonzi/db11-ai-tools.git",
+                "directory": "packages/pi-copilot-usage",
+            },
+        )
+        extension = (
+            package_root / "agents/pi/extensions/copilot-usage/index.ts"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"User-Agent": "db11-copilot-usage"', extension)
+        self.assertNotIn("dbz-copilot-usage", extension)
 
     def test_every_workspace_skill_has_valid_unique_frontmatter(self) -> None:
         names: set[str] = set()

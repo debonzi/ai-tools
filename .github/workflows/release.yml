@@ -5,6 +5,7 @@ on:
     tags:
       - "db11-skills-v*"
       - "pi-codex-usage-v*"
+      - "pi-copilot-usage-v*"
 
 permissions:
   contents: read

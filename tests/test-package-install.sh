@@ -131,6 +131,12 @@ elif selector == "pi-codex-usage":
     }
     assert set(owned) == {"usage-codex"}, owned
     assert owned["usage-codex"]["source"] == "extension"
+elif selector == "pi-copilot-usage":
+    assert manifest["pi"] == {
+        "extensions": ["./agents/pi/extensions/copilot-usage/index.ts"],
+    }
+    assert set(owned) == {"usage-copilot"}, owned
+    assert owned["usage-copilot"]["source"] == "extension"
 else:
     raise AssertionError(selector)
 
@@ -152,5 +158,6 @@ PY
 
 run_package_test db11-skills @debonzi/db11-skills
 run_package_test pi-codex-usage @debonzi/pi-codex-usage
+run_package_test pi-copilot-usage @debonzi/pi-copilot-usage
 
 printf '%s\n' 'All isolated Pi package installation tests passed.'

@@ -1,6 +1,6 @@
 # Releasing the DB11 Pi packages
 
-This document defines the independent release contract for the two publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
+This document defines the independent release contract for the three publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
 
 ## Release identities
 
@@ -10,6 +10,7 @@ Release code must use this fixed allowlist rather than deriving a path or npm id
 | --- | --- | --- | --- |
 | `db11-skills` | `packages/db11-skills` | `@debonzi/db11-skills` | `db11-skills-vX.Y.Z` |
 | `pi-codex-usage` | `packages/pi-codex-usage` | `@debonzi/pi-codex-usage` | `pi-codex-usage-vX.Y.Z` |
+| `pi-copilot-usage` | `packages/pi-copilot-usage` | `@debonzi/pi-copilot-usage` | `pi-copilot-usage-vX.Y.Z` |
 
 Legacy `dbz-skills` and `dbz-crew` selectors and the deprecated `db11-crew` selector are historical only and are rejected for new releases. Existing tags remain unchanged.
 
@@ -77,6 +78,7 @@ The release workflow must trigger only for these tag families:
 ```text
 db11-skills-v*
 pi-codex-usage-v*
+pi-copilot-usage-v*
 ```
 
 Validation must parse the tag, apply the fixed mapping, verify the selected workspace name and version, check `main` ancestry, install locked dependencies, and validate all workspace archives. The publish job may receive only the validated fixed workspace and npm identity. It publishes from that workspace after approval in the protected `npm` environment, using `--access public --provenance`.
@@ -89,6 +91,7 @@ Each npm identity requires its own registry entry and trusted-publisher authoriz
 
 - `@debonzi/db11-skills`
 - `@debonzi/pi-codex-usage`
+- `@debonzi/pi-copilot-usage`
 
 For each package, the trusted publisher must authorize this GitHub Actions identity:
 

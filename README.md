@@ -1,6 +1,6 @@
 # DB11 AI Tools package catalog
 
-This repository is the private workspace coordinator and source catalog for two independently installable [Pi](https://github.com/earendil-works/pi-mono) packages. The repository root is not a Pi package and is never published.
+This repository is the private workspace coordinator and source catalog for three independently installable [Pi](https://github.com/earendil-works/pi-mono) packages. The repository root is not a Pi package and is never published.
 
 ## Packages
 
@@ -8,8 +8,9 @@ This repository is the private workspace coordinator and source catalog for two 
 | --- | --- | --- |
 | [`@debonzi/db11-skills`](packages/db11-skills/README.md) | `db11-plan` and `db11-journey` skills | Durable planning sessions and staged development journeys |
 | [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/README.md) | Codex Usage Pi extension | OpenAI Codex quota display and on-demand usage reports |
+| [`@debonzi/pi-copilot-usage`](packages/pi-copilot-usage/README.md) | GitHub Copilot Usage Pi extension | GitHub Copilot allowance display and on-demand usage reports |
 
-Package versions and releases are independent. There is no aggregate package that installs both.
+Package versions and releases are independent. There is no aggregate package that installs all of them.
 
 ## Install from npm
 
@@ -20,6 +21,7 @@ Install only the packages you want:
 ```sh
 pi install npm:@debonzi/db11-skills
 pi install npm:@debonzi/pi-codex-usage
+pi install npm:@debonzi/pi-copilot-usage
 ```
 
 `pi install` installs a complete package and enables its declared resources by default. It writes to global settings unless `-l` is supplied for a project-local installation. Use `pi config` to control globally loaded resources, or `pi config -l` to start in project overrides with inherited global resources shown dimmed.
@@ -36,7 +38,7 @@ The `@debonzi/db11-crew` package and all of its resources are deprecated and exc
 
 ## Migrate from the former aggregate package
 
-The former `@debonzi/dbz-ai-tools` package cannot be migrated automatically into the two active npm identities. Preserve any intentional local settings and choose the replacement DB11 package or packages explicitly. There is no aggregate `@debonzi/db11-ai-tools` package.
+The former `@debonzi/dbz-ai-tools` package cannot be migrated automatically into the three active npm identities. Preserve any intentional local settings and choose the replacement DB11 package or packages explicitly. There is no aggregate `@debonzi/db11-ai-tools` package.
 
 1. Run `pi list`, `pi config`, and, when relevant, `pi config -l` to inspect the old installation and determine which resources you use.
 2. Map the former resources to their current packages and identities:
@@ -110,6 +112,7 @@ From a clone of this repository, install a workspace by its explicit local path:
 ```sh
 pi install ./packages/db11-skills
 pi install ./packages/pi-codex-usage
+pi install ./packages/pi-copilot-usage
 ```
 
 Local paths reference the source workspaces directly. The private repository root is not installable, and Pi has no documented Git-subdirectory package selector; a Git installation of the repository root does not select one of these packages.

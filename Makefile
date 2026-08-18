@@ -24,7 +24,7 @@ help:
 	  '  make release-tag PACKAGE=db11-skills VERSION=X.Y.Z        Create the selected package-qualified annotated tag.' \
 	  '  make release-push PACKAGE=db11-skills VERSION=X.Y.Z       Atomically push main and only the selected tag.' \
 	  '' \
-	  'PACKAGE must be db11-skills or pi-codex-usage.' \
+	  'PACKAGE must be db11-skills, pi-codex-usage, or pi-copilot-usage.' \
 	  'Local release targets never publish npm packages.' \
 	  'Override REMOTE=origin or BRANCH=main only when repository policy requires it.'
 
@@ -118,7 +118,9 @@ release-commit:
 	    ' M:packages/db11-skills/package.json'|\
 	    ' M:packages/db11-skills/CHANGELOG.md'|\
 	    ' M:packages/pi-codex-usage/package.json'|\
-	    ' M:packages/pi-codex-usage/CHANGELOG.md') ;; \
+	    ' M:packages/pi-codex-usage/CHANGELOG.md'|\
+	    ' M:packages/pi-copilot-usage/package.json'|\
+	    ' M:packages/pi-copilot-usage/CHANGELOG.md') ;; \
 	    ' D:.changeset/'*.md) \
 	      [[ "$$path" != '.changeset/README.md' ]] || unexpected+="$$line"$$'\n' ;; \
 	    *) unexpected+="$$line"$$'\n' ;; \
@@ -135,7 +137,7 @@ release-commit:
 	  exit 1; \
 	fi; \
 	updated=0; \
-	for workspace in db11-skills pi-codex-usage; do \
+	for workspace in db11-skills pi-codex-usage pi-copilot-usage; do \
 	  manifest="packages/$$workspace/package.json"; \
 	  changelog="packages/$$workspace/CHANGELOG.md"; \
 	  manifest_changed=0; changelog_changed=0; \
@@ -153,7 +155,8 @@ release-commit:
 	fi
 	git add package-lock.json \
 	  packages/db11-skills/package.json packages/db11-skills/CHANGELOG.md \
-	  packages/pi-codex-usage/package.json packages/pi-codex-usage/CHANGELOG.md
+	  packages/pi-codex-usage/package.json packages/pi-codex-usage/CHANGELOG.md \
+	  packages/pi-copilot-usage/package.json packages/pi-copilot-usage/CHANGELOG.md
 	git add -u -- .changeset
 	git diff --cached --check
 	git commit -m "chore: version packages"
