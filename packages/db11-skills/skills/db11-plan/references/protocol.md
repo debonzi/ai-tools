@@ -42,7 +42,9 @@ outcome, update the ticket decision log, complete the topic, and open the next t
 After every Plan Topic is terminal, combine accepted decisions into a concise Plan
 Conclusion.
 Do not copy raw exploration, rejected proposals, or conversation history unless needed
-to explain a retained trade-off.
+to explain a retained trade-off. When implementation is intended, preserve bounded
+functional outcomes and observable acceptance criteria so a later explicitly authorized
+workflow can derive implementation work without inventing behavior.
 
 ### Conclude
 

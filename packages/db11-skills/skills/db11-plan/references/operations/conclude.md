@@ -37,7 +37,10 @@ Produce a concise Plan Conclusion that contains:
 - retained constraints and non-goals;
 - important trade-offs and risks;
 - deliberately deferred decisions and their destination;
-- acceptance criteria or boundaries for whatever workflow follows.
+- acceptance criteria or boundaries for whatever workflow follows;
+- when implementation is intended, bounded functional outcomes and observable
+  acceptance criteria sufficient to derive Implementation Tickets without inventing
+  new behavior.
 
 Exclude raw exploration, superseded proposals, conversational acknowledgements, and
 implementation detail that was never accepted.
@@ -58,8 +61,8 @@ After explicit acceptance:
 6. re-read the terminal ticket to verify the transition.
 
 Report the final ticket title and ID, the compact conclusion, deferred work, and the
-fact that implementation, file creation, Journey creation, or Crew delegation still
-requires separate authorization.
+fact that Implementation Ticket materialization, implementation, file creation, Journey
+creation, or Crew delegation still requires separate authorization.
 
 If completion fails, report the exact partial state and do not repeat successful edits
 blindly.

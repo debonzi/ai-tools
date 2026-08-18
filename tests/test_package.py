@@ -33,6 +33,20 @@ EXPECTED_WORKSPACES = {
             "skills/db11-plan/references/operations/status.md",
             "skills/db11-plan/references/operations/discuss.md",
             "skills/db11-plan/references/operations/conclude.md",
+            "skills/db11-shipit/SKILL.md",
+            "skills/db11-shipit/agents/openai.yaml",
+            "skills/db11-shipit/assets/implementation-ticket-body.md",
+            "skills/db11-shipit/assets/implementation-task-body.md",
+            "skills/db11-shipit/references/protocol.md",
+            "skills/db11-shipit/references/wyrd-model.md",
+            "skills/db11-shipit/references/conversation-format.md",
+            "skills/db11-shipit/references/operations/start.md",
+            "skills/db11-shipit/references/operations/resume.md",
+            "skills/db11-shipit/references/operations/status.md",
+            "skills/db11-shipit/references/operations/plan.md",
+            "skills/db11-shipit/references/operations/materialize.md",
+            "skills/db11-shipit/references/operations/work.md",
+            "skills/db11-shipit/references/operations/conclude.md",
             "skills/db11-journey/SKILL.md",
             "skills/db11-journey/agents/openai.yaml",
             "skills/db11-journey/references/concepts.md",
@@ -82,7 +96,7 @@ EXPECTED_WORKSPACES = {
         },
     },
 }
-EXPECTED_SKILL_NAMES = {"db11-plan", "db11-journey"}
+EXPECTED_SKILL_NAMES = {"db11-plan", "db11-shipit", "db11-journey"}
 EXECUTABLE_PATHS = {
     "db11-skills": set(),
     "pi-codex-usage": set(),
@@ -277,6 +291,39 @@ class PackageManifestTests(unittest.TestCase):
 
         self.assertEqual(names, EXPECTED_SKILL_NAMES)
         self.assertFalse(any(path.parent.name == "dbz-ai-tools-setup" for path in PACKAGES.rglob("SKILL.md")))
+
+    def test_db11_shipit_uses_progressive_operation_references(self) -> None:
+        shipit_root = PACKAGES / "db11-skills/skills/db11-shipit"
+        skill = (shipit_root / "SKILL.md").read_text(encoding="utf-8")
+
+        for relative in (
+            "references/protocol.md",
+            "references/wyrd-model.md",
+            "references/conversation-format.md",
+            "references/operations/start.md",
+            "references/operations/resume.md",
+            "references/operations/status.md",
+            "references/operations/plan.md",
+            "references/operations/materialize.md",
+            "references/operations/work.md",
+            "references/operations/conclude.md",
+            "assets/implementation-ticket-body.md",
+            "assets/implementation-task-body.md",
+        ):
+            self.assertIn(relative, skill)
+            self.assertTrue((shipit_root / relative).is_file(), relative)
+
+        for requirement in (
+            "Do not preload every reference",
+            "plan:<plan-ticket-id>",
+            "protocol:db11_shipit",
+            "Only `work` authorizes",
+            "Never read or edit `.wyrd/`",
+            "Do not commit, push, deploy",
+        ):
+            self.assertIn(requirement, skill)
+
+        self.assertLess(len(skill), 6_000)
 
     def test_db11_journey_uses_progressive_phase_references(self) -> None:
         journey_root = PACKAGES / "db11-skills/skills/db11-journey"

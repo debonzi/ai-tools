@@ -10,25 +10,31 @@ A bounded development effort whose durable state begins with exactly one Plan Ti
 
 An Initiative is a logical aggregate, not a Wyrd resource. Initiative membership does not establish parent-child relationships or imply execution dependencies between its tickets.
 
-Use **Initiative** in prose and `initiative` in identifiers. An Initiative is not a Plan Ticket, Plan Topic, Implementation Ticket, implementation task, or dependency graph.
+Use **Initiative** in prose and `initiative` in identifiers. An Initiative is not a Plan Ticket, Plan Topic, Implementation Ticket, Implementation Task, or dependency graph.
 
 ### Initiative Identity
 
-The stable value that associates one Plan Ticket and its derived Implementation Tickets with the same Initiative. It supports discovery and traceability without replacing each resource's Wyrd ID or encoding execution order.
+The stable value `plan:<plan-ticket-id>` that associates one Plan Ticket and its derived Implementation Tickets with the same Initiative. The source Plan Ticket's Wyrd ID defines the value, and every Implementation Ticket records it explicitly. It supports discovery and traceability without replacing each resource's Wyrd ID or encoding execution order.
 
 Use **Initiative identity** in prose and `initiative_identity` in identifiers.
 
 ### Implementation Ticket
 
-A Wyrd ticket materialized from an accepted Plan Conclusion to deliver one bounded functional slice of its Initiative. It records the slice's expected behavior, relevant accepted decisions, scope, acceptance criteria, technical approach, and verification boundary. Its child tasks contain the technical work required to deliver that slice.
+A Wyrd ticket materialized from an accepted Plan Conclusion to deliver one bounded functional slice or indispensable technical enabler of its Initiative. It records the expected outcome, relevant accepted decisions, scope, acceptance criteria, Technical Plan, planning status, and verification boundary. Its child Implementation Tasks contain the accepted technical work required to deliver that outcome.
 
-An Implementation Ticket references its source Plan Ticket and carries the same Initiative identity. It is not a child of the Plan Ticket, and it depends on another ticket only when execution genuinely requires that ordering.
+An Implementation Ticket references its source Plan Ticket and records the same Initiative identity. It is not a child of the Plan Ticket, and it depends on another ticket only when execution genuinely requires that ordering.
 
 Use **Implementation Ticket** in prose and `implementation_ticket` in identifiers.
 
+### Technical Plan
+
+The requester-accepted technical design for one Implementation Ticket. It records verified codebase findings, implementation approach, affected components and interfaces, data and compatibility handling, verification strategy, risks, and the complete Implementation Task map. It is persisted in the Implementation Ticket before tasks are materialized and excludes production changes.
+
+Use **Technical Plan** in DB11 ShipIt prose and `technical_plan` in identifiers.
+
 ### Implementation Task
 
-One bounded unit of technical execution represented by a child Wyrd task under an Implementation Ticket. An Implementation Task implements part of its parent's accepted functional slice and records its durable result before completion. It is not a Plan Topic or a separate functional requirement.
+One bounded unit of technical execution represented by a child Wyrd task under an Implementation Ticket. An Implementation Task implements part of its parent's accepted outcome and Technical Plan, maps to functional acceptance criteria or an explicit technical-enabler outcome, and records its durable result before completion. It is not a Plan Topic or a separate functional requirement.
 
 Use **Implementation Task** in prose and `implementation_task` in identifiers.
 
@@ -48,7 +54,7 @@ Use **DB11 Plan label** in prose and `db11_plan_label` in identifiers.
 
 ### Plan Ticket
 
-The Wyrd ticket that holds one DB11 Plan's objective, constraints, inspected sources, initial findings, topic map, compact decision log, and final Plan Conclusion. A Plan Ticket carries the DB11 Plan label and has no protocol-required dependencies. When it belongs to an Initiative, it also carries that Initiative's identity and serves as the accepted source for any derived Implementation Tickets; this association creates neither ticket hierarchy nor execution dependencies. Its Wyrd ID remains the durable resume identity for the DB11 Plan.
+The Wyrd ticket that holds one DB11 Plan's objective, constraints, inspected sources, initial findings, topic map, compact decision log, and final Plan Conclusion. A Plan Ticket carries the DB11 Plan label and has no protocol-required dependencies. When it belongs to an Initiative, its Wyrd ID defines the Initiative identity and it serves as the accepted source for any derived Implementation Tickets; this association creates neither ticket hierarchy nor execution dependencies. Its Wyrd ID remains the durable resume identity for the DB11 Plan.
 
 Use **Plan Ticket** in DB11 Plan prose and `plan_ticket` in identifiers.
 
@@ -60,9 +66,25 @@ Use **Plan Topic** in DB11 Plan prose and `plan_topic` in identifiers.
 
 ### Plan Conclusion
 
-The requester-accepted synthesis of a DB11 Plan's decisions, constraints, retained trade-offs, deferred decisions, and boundaries for subsequent work. It is persisted in the Plan Ticket before that ticket completes and excludes raw exploration and superseded proposals.
+The requester-accepted synthesis of a DB11 Plan's decisions, constraints, retained trade-offs, deferred decisions, and boundaries for subsequent work. When implementation is intended, it also defines the bounded functional outcomes and observable acceptance criteria needed to derive Implementation Tickets without inventing new behavior. It is persisted in the Plan Ticket before that ticket completes and excludes raw exploration and superseded proposals.
 
 Use **Plan Conclusion** in DB11 Plan prose and `plan_conclusion` in identifiers.
+
+## DB11 ShipIt Protocol
+
+### DB11 ShipIt
+
+The durable post-plan protocol that validates one accepted Plan Conclusion, creates its Initiative's Implementation Tickets, prepares and records each Technical Plan, materializes accepted Implementation Tasks and execution dependencies, executes one bounded task at a time, and concludes verified delivery without relying on conversational history. The source Plan Ticket remains read-only throughout DB11 ShipIt.
+
+DB11 ShipIt separates authorization to create tickets, plan technically, materialize tasks, execute production changes, and conclude delivery. Resuming or inspecting an Initiative does not authorize the next mutation.
+
+Use **DB11 ShipIt** in prose and `db11-shipit` for the skill and identifiers. DB11 ShipIt is not a Plan Ticket, Initiative root resource, autonomous orchestrator, deployment protocol, or implicit authorization to commit or mutate remote systems.
+
+### DB11 ShipIt Label
+
+The canonical Wyrd label `protocol:db11_shipit` applied to every new Implementation Ticket and Implementation Task created by DB11 ShipIt. It is a discovery index; the ticket's protocol marker, Initiative identity, source Plan reference, and task parent relationship validate resource identity.
+
+Use **DB11 ShipIt label** in prose and `db11_shipit_label` in identifiers.
 
 ## Journey Protocol
 

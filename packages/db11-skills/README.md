@@ -1,15 +1,16 @@
 # @debonzi/db11-skills
 
-A Pi package for durable topic-by-topic planning and staged development journeys.
+A Pi package for durable planning, implementation delivery, and staged development workflows.
 
 ## Included skills
 
 | Skill | Purpose | Prerequisites |
 | --- | --- | --- |
 | [`db11-plan`](skills/db11-plan/SKILL.md) | Run an explicitly invoked, durable topic-by-topic planning and decision session | Wyrd CLI 0.1.x |
+| [`db11-shipit`](skills/db11-shipit/SKILL.md) | Turn an accepted DB11 Plan into durable technical planning and bounded implementation work | Wyrd CLI 0.1.x |
 | [`db11-journey`](skills/db11-journey/SKILL.md) | Run Definition, Planning, and Implementation across sessions with durable Wyrd state | Wyrd CLI 0.1.x |
 
-Both skills use compact routing files and progressively load only the operation and protocol references relevant to the current session. Neither initializes Wyrd nor delegates work to other agents automatically. DB11 Plan uses one standalone Plan Ticket and one child task per Plan Topic, with `protocol:db11_plan` on every new protocol resource for discovery and attribution; DB11 Journey uses a dependency-linked phase lifecycle. Both include OpenAI agent metadata under their respective `agents/` directories.
+All skills use compact routing files and progressively load only the operation and protocol references relevant to the current session. None initializes Wyrd or delegates work to other agents automatically. DB11 Plan uses one Plan Ticket and one child task per Plan Topic, with `protocol:db11_plan` on every new protocol resource. DB11 ShipIt keeps that completed ticket read-only, creates Implementation Tickets labeled `protocol:db11_shipit`, and separates technical planning, task materialization, execution, and conclusion authorization. DB11 Journey uses a dependency-linked phase lifecycle. Every skill includes OpenAI agent metadata under its `agents/` directory.
 
 ## Install
 
@@ -25,9 +26,11 @@ For development from the repository root, install the local workspace instead:
 pi install ./packages/db11-skills
 ```
 
-Pi discovers both skills under the declared `skills` resource by default. Use `pi config` to control global resource loading or `pi config -l` for project overrides.
+Pi discovers all three skills under the declared `skills` resource by default. Use `pi config` to control global resource loading or `pi config -l` for project overrides.
 
-Run `/skill:db11-plan start <problem>` to create a standalone Plan Ticket and begin its first Plan Topic, `/skill:db11-plan resume <ticket-id>` to continue from durable Wyrd state, `/skill:db11-plan status [ticket-id]` for a read-only inventory or ticket checkpoint, or `/skill:db11-plan conclude <ticket-id>` to synthesize an accepted Plan Conclusion. DB11 Plan requires explicit invocation.
+Run `/skill:db11-plan start <problem>` to create a Plan Ticket and begin its first Plan Topic, `/skill:db11-plan resume <ticket-id>` to continue from durable Wyrd state, `/skill:db11-plan status [ticket-id]` for a read-only inventory or ticket checkpoint, or `/skill:db11-plan conclude <ticket-id>` to synthesize an accepted Plan Conclusion. DB11 Plan requires explicit invocation.
+
+After that Plan Ticket is completed, run `/skill:db11-shipit start <plan-ticket-id>` to create its Initiative's Implementation Tickets, `/skill:db11-shipit plan <implementation-ticket-id>` to prepare resumable technical planning, `/skill:db11-shipit materialize <implementation-ticket-id>` to create accepted tasks, `/skill:db11-shipit work <implementation-task-id>` to execute one bounded task, or `/skill:db11-shipit resume <plan-ticket-id>` to recover a read-only checkpoint. DB11 ShipIt requires explicit invocation, and only `work` authorizes production changes.
 
 Run `/skill:db11-journey start <codename>` to start a Journey, `/skill:db11-journey resume <codename>` to recover its bounded current context, or `/skill:db11-journey advance <codename>` to perform an explicitly requested phase transition. Pi may load other enabled skills when their descriptions match the request.
 
@@ -61,7 +64,7 @@ There are no temporary aliases for the former package or skill names. Migrate ex
    ```
 
    Use these literal commands only when `pi list` reports `npm:@debonzi/dbz-skills`; otherwise substitute the exact reported source.
-3. Install the DB11 npm package in the intended scope when you need `db11-plan` or `db11-journey`:
+3. Install the DB11 npm package in the intended scope when you need `db11-plan`, `db11-shipit`, or `db11-journey`:
 
    ```sh
    # Global installation
@@ -71,7 +74,7 @@ There are no temporary aliases for the former package or skill names. Migrate ex
    pi install npm:@debonzi/db11-skills -l
    ```
 
-4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices do not transfer automatically. Configure `db11-plan` and `db11-journey` explicitly where needed, and remove stale issue or specification skill filters; project overrides can still affect a global installation.
+4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices do not transfer automatically. Configure `db11-plan`, `db11-shipit`, and `db11-journey` explicitly where needed, and remove stale issue or specification skill filters; project overrides can still affect a global installation.
 5. Run `/reload` in every running Pi session that should use the new package, or restart those sessions, after removal, installation, and filter changes.
 
 ## Develop and test
@@ -83,7 +86,7 @@ cd packages/db11-skills
 npm pack --dry-run --ignore-scripts
 ```
 
-Repository-only validation files are not included in the package tarball. Run `npm run check` and `npm run pack:check` from the repository root for the complete workspace validation. Use the [DB11 Plan smoke test](https://github.com/debonzi/db11-ai-tools/blob/main/packages/db11-skills/tests/SMOKE_DB11_PLAN.md) for the manual start, clarification, acceptance, resume, status, and conclusion workflow.
+Repository-only validation files are not included in the package tarball. Run `npm run check` and `npm run pack:check` from the repository root for the complete workspace validation. Use the [DB11 Plan smoke test](https://github.com/debonzi/db11-ai-tools/blob/main/packages/db11-skills/tests/SMOKE_DB11_PLAN.md) for the manual deliberation workflow and the [DB11 ShipIt smoke test](https://github.com/debonzi/db11-ai-tools/blob/main/packages/db11-skills/tests/SMOKE_DB11_SHIPIT.md) for post-plan ticket creation, technical planning, materialization, execution, resume, status, and delivery conclusion.
 
 ## License
 

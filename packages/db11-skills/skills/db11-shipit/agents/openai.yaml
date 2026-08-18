@@ -1,0 +1,4 @@
+interface:
+  display_name: "DB11 ShipIt"
+  short_description: "Plan and ship accepted DB11 initiatives"
+  default_prompt: "Use $db11-shipit to create, technically plan, resume, execute, or conclude durable implementation work derived from an accepted DB11 Plan."
