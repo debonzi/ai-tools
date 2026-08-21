@@ -1,4 +1,0 @@
-interface:
-  display_name: "DB11 Spec"
-  short_description: "Draft implementation-ready specs"
-  default_prompt: "Use $db11-spec to turn this idea into an implementation-ready spec."
