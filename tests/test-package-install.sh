@@ -15,6 +15,7 @@ run_package_test() {
     local home="$case_root/home"
     local agent_dir="$case_root/agent"
     local work_dir="$case_root/work"
+    local staging="$case_root/staging"
     local pack_json="$case_root/pack.json"
     local expected_version archive_name archive package_root
 
@@ -24,7 +25,17 @@ run_package_test() {
     mkdir -p "$archive_dir" "$unpacked_dir" "$home" "$agent_dir" "$work_dir"
     chmod 700 "$home" "$agent_dir"
 
-    npm pack --json --ignore-scripts --pack-destination "$archive_dir" "$workspace" >"$pack_json"
+    if [[ "$selector" == db11-crew ]]; then
+        cp -a "$workspace" "$staging"
+        rm -rf "$staging/node_modules"
+        python3 "$root/scripts/materialize_bundle.py" \
+            --package db11-crew \
+            --destination-root "$staging"
+    else
+        staging="$workspace"
+    fi
+
+    npm pack --json --ignore-scripts --pack-destination "$archive_dir" "$staging" >"$pack_json"
     archive_name="$(python3 - "$pack_json" "$npm_name" <<'PY'
 import json
 from pathlib import Path
@@ -43,6 +54,36 @@ PY
     tar -xzf "$archive" -C "$unpacked_dir"
     package_root="$unpacked_dir/package"
     test -f "$package_root/package.json"
+
+    if [[ "$selector" == db11-crew ]]; then
+        # A local-path Pi package is not npm-installed, so model Pi's documented
+        # bundled core peers with links that exist only in this temporary harness.
+        node --input-type=module - "$root" "$package_root" <<'NODE'
+import { mkdir, readFile, symlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
+const [workspaceRoot, packageRoot] = process.argv.slice(2);
+const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+const corePeers = new Set([
+  "@earendil-works/pi-coding-agent",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-tui",
+  "typebox",
+]);
+for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
+  if (!corePeers.has(name) || range !== "*") throw new Error(`Unexpected Pi core peer: ${name}@${range}`);
+  const source = join(workspaceRoot, "node_modules", ...name.split("/"));
+  const sourceManifest = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
+  if (sourceManifest.name !== name) throw new Error(`Cannot locate package root for ${name}`);
+  const destination = join(packageRoot, "node_modules", ...name.split("/"));
+  await mkdir(dirname(destination), { recursive: true });
+  await symlink(source, destination, "dir");
+}
+if (Object.keys(manifest.peerDependencies ?? {}).length !== corePeers.size) {
+  throw new Error("The DB11 Crew Pi core peer set is incomplete.");
+}
+NODE
+    fi
 
     (
         export HOME="$home"
@@ -72,7 +113,9 @@ PY
         "$agent_dir/trust.json" \
         "$case_root/rpc.jsonl" \
         "$home" \
-        "$case_root/pi-list.txt" <<'PY'
+        "$case_root/pi-list.txt" \
+        "$case_root/config" \
+        "$case_root/state" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -84,6 +127,8 @@ trust_path = Path(sys.argv[6])
 rpc_path = Path(sys.argv[7])
 home = Path(sys.argv[8])
 pi_list_path = Path(sys.argv[9])
+xdg_config_home = Path(sys.argv[10])
+xdg_state_home = Path(sys.argv[11])
 
 manifest = json.loads((package_root / "package.json").read_text(encoding="utf-8"))
 assert manifest["name"] == expected_name
@@ -102,7 +147,10 @@ assert not trust_path.exists(), "package installation must not create a trust de
 
 pi_list = pi_list_path.read_text(encoding="utf-8")
 assert str(package_root) in pi_list, pi_list
-assert "db11-crew" not in pi_list.lower(), pi_list
+if selector == "db11-crew":
+    assert "db11-crew-member" not in pi_list.lower(), pi_list
+else:
+    assert "db11-crew" not in pi_list.lower(), pi_list
 assert "dbz-crew" not in pi_list.lower(), pi_list
 
 records = [json.loads(line) for line in rpc_path.read_text(encoding="utf-8").splitlines() if line]
@@ -121,7 +169,30 @@ owned = {
     and Path(command["sourceInfo"].get("baseDir", "")).resolve() == package_root
 }
 
-if selector == "db11-skills":
+if selector == "db11-crew":
+    assert manifest["pi"] == {
+        "extensions": ["./agents/pi/extensions/db11-crew/index.ts"],
+        "skills": ["./skills"],
+    }
+    assert "./agents/pi/extensions/db11-crew-member/index.ts" not in manifest["pi"]["extensions"]
+    assert "bin" not in manifest
+    assert set(owned) == {
+        "db11-crew-doctor",
+        "db11-crew-settings",
+        "db11-crew-setup",
+        "skill:db11-crew",
+        "skill:db11-crew-setup",
+    }, owned
+    assert all(
+        command["source"] == ("skill" if name.startswith("skill:") else "extension")
+        for name, command in owned.items()
+    )
+    for config_home in (home / ".config", xdg_config_home):
+        assert not (config_home / "db11-crew/config.json").exists()
+    for state_home in (home / ".local/state", xdg_state_home):
+        assert not (state_home / "db11-crew-v2").exists()
+        assert not (state_home / "db11-crew").exists()
+elif selector == "db11-skills":
     assert manifest["pi"] == {"skills": ["./skills"]}
     assert set(owned) == {
         "skill:db11-plan",
@@ -145,9 +216,7 @@ else:
     raise AssertionError(selector)
 
 command_names = {command["name"] for command in commands}
-assert {
-    "skill:db11-crew",
-    "skill:db11-crew-setup",
+prohibited_commands = {
     "skill:db11-issues",
     "skill:db11-spec",
     "skill:dbz-crew",
@@ -155,13 +224,38 @@ assert {
     "skill:dbz-ai-tools-setup",
     "skill:dbz-issues",
     "skill:dbz-spec",
-}.isdisjoint(command_names), command_names
+}
+if selector != "db11-crew":
+    prohibited_commands |= {"skill:db11-crew", "skill:db11-crew-setup"}
+assert prohibited_commands.isdisjoint(command_names), command_names
 assert "cusage" not in command_names
 PY
 }
 
-run_package_test db11-skills @debonzi/db11-skills
-run_package_test pi-codex-usage @debonzi/pi-codex-usage
-run_package_test pi-copilot-usage @debonzi/pi-copilot-usage
+requested="${1:-all}"
+case "$requested" in
+    all)
+        run_package_test db11-crew @debonzi/db11-crew
+        run_package_test db11-skills @debonzi/db11-skills
+        run_package_test pi-codex-usage @debonzi/pi-codex-usage
+        run_package_test pi-copilot-usage @debonzi/pi-copilot-usage
+        ;;
+    db11-crew)
+        run_package_test db11-crew @debonzi/db11-crew
+        ;;
+    db11-skills)
+        run_package_test db11-skills @debonzi/db11-skills
+        ;;
+    pi-codex-usage)
+        run_package_test pi-codex-usage @debonzi/pi-codex-usage
+        ;;
+    pi-copilot-usage)
+        run_package_test pi-copilot-usage @debonzi/pi-copilot-usage
+        ;;
+    *)
+        printf 'Unknown package selector: %s\n' "$requested" >&2
+        exit 2
+        ;;
+esac
 
-printf '%s\n' 'All isolated Pi package installation tests passed.'
+printf '%s\n' 'Selected isolated Pi package installation tests passed.'

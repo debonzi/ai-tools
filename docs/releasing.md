@@ -1,6 +1,6 @@
 # Releasing the DB11 Pi packages
 
-This document defines the independent release contract for the three publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
+This document defines the independent release contract for the four publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
 
 ## Release identities
 
@@ -8,11 +8,12 @@ Release code must use this fixed allowlist rather than deriving a path or npm id
 
 | `PACKAGE` selector | Workspace | npm package | Annotated tag |
 | --- | --- | --- | --- |
+| `db11-crew` | `packages/db11-crew` | `@debonzi/db11-crew` | `db11-crew-vX.Y.Z` |
 | `db11-skills` | `packages/db11-skills` | `@debonzi/db11-skills` | `db11-skills-vX.Y.Z` |
 | `pi-codex-usage` | `packages/pi-codex-usage` | `@debonzi/pi-codex-usage` | `pi-codex-usage-vX.Y.Z` |
 | `pi-copilot-usage` | `packages/pi-copilot-usage` | `@debonzi/pi-copilot-usage` | `pi-copilot-usage-vX.Y.Z` |
 
-Legacy `dbz-skills` and `dbz-crew` selectors and the deprecated `db11-crew` selector are historical only and are rejected for new releases. Existing tags remain unchanged.
+Legacy `dbz-skills` and `dbz-crew` selectors are historical only and are rejected for new releases. The active `db11-crew` selector belongs exclusively to the source-only 0.2.x package line, whose current lifecycle uses the canonical state root `~/.local/state/db11-crew`, marker identity `db11-crew`, and Builder ref pattern `refs/heads/db11-crew/<run-id>` with explicit activation and exact-session reload; existing legacy tags remain unchanged.
 
 Versions and releases are independent. Equal version numbers do not create a fixed or linked release group, and one release metadata commit may be the target of more than one package-qualified tag.
 
@@ -42,6 +43,7 @@ For each selected package:
 - `npm ci`, `npm run check`, and `npm run pack:check` pass before tag creation and again before publication;
 - GitHub environment approval occurs only after validation;
 - the workflow publishes exactly the selected workspace with public access and provenance;
+- for `db11-crew`, the exact archive remains source-only with no production dependencies, exposes only the Crewlead extension and two skills through Pi, and packages the member companion only for explicit authenticated member loading;
 - normal publication uses npm trusted publishing through GitHub Actions OIDC;
 - local release targets never run `npm publish`.
 
@@ -76,6 +78,7 @@ Do not use local `npm publish` as a fallback. If the selector mapping, archive v
 The release workflow must trigger only for these tag families:
 
 ```text
+db11-crew-v*
 db11-skills-v*
 pi-codex-usage-v*
 pi-copilot-usage-v*
@@ -89,6 +92,7 @@ The publish job alone needs `id-token: write`; repository contents remain read-o
 
 Each npm identity requires its own registry entry and trusted-publisher authorization:
 
+- `@debonzi/db11-crew`
 - `@debonzi/db11-skills`
 - `@debonzi/pi-codex-usage`
 - `@debonzi/pi-copilot-usage`

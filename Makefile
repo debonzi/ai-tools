@@ -24,7 +24,7 @@ help:
 	  '  make release-tag PACKAGE=db11-skills VERSION=X.Y.Z        Create the selected package-qualified annotated tag.' \
 	  '  make release-push PACKAGE=db11-skills VERSION=X.Y.Z       Atomically push main and only the selected tag.' \
 	  '' \
-	  'PACKAGE must be db11-skills, pi-codex-usage, or pi-copilot-usage.' \
+	  'PACKAGE must be db11-crew, db11-skills, pi-codex-usage, or pi-copilot-usage.' \
 	  'Local release targets never publish npm packages.' \
 	  'Override REMOTE=origin or BRANCH=main only when repository policy requires it.'
 
@@ -115,6 +115,8 @@ release-commit:
 	  path="$${line:3}"; \
 	  case "$$status:$$path" in \
 	    ' M:package-lock.json'|\
+	    ' M:packages/db11-crew/package.json'|\
+	    ' M:packages/db11-crew/CHANGELOG.md'|\
 	    ' M:packages/db11-skills/package.json'|\
 	    ' M:packages/db11-skills/CHANGELOG.md'|\
 	    ' M:packages/pi-codex-usage/package.json'|\
@@ -137,7 +139,7 @@ release-commit:
 	  exit 1; \
 	fi; \
 	updated=0; \
-	for workspace in db11-skills pi-codex-usage pi-copilot-usage; do \
+	for workspace in db11-crew db11-skills pi-codex-usage pi-copilot-usage; do \
 	  manifest="packages/$$workspace/package.json"; \
 	  changelog="packages/$$workspace/CHANGELOG.md"; \
 	  manifest_changed=0; changelog_changed=0; \
@@ -154,6 +156,7 @@ release-commit:
 	  exit 1; \
 	fi
 	git add package-lock.json \
+	  packages/db11-crew/package.json packages/db11-crew/CHANGELOG.md \
 	  packages/db11-skills/package.json packages/db11-skills/CHANGELOG.md \
 	  packages/pi-codex-usage/package.json packages/pi-codex-usage/CHANGELOG.md \
 	  packages/pi-copilot-usage/package.json packages/pi-copilot-usage/CHANGELOG.md

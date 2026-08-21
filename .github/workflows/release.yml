@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags:
+      - "db11-crew-v*"
       - "db11-skills-v*"
       - "pi-codex-usage-v*"
       - "pi-copilot-usage-v*"
@@ -95,6 +96,17 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
       - run: npm ci
+      - name: Materialize approved bundled dependencies
+        env:
+          SELECTOR: ${{ needs.validate.outputs.selector }}
+          WORKSPACE: ${{ needs.validate.outputs.workspace }}
+        run: |
+          set -euo pipefail
+          if [[ "$SELECTOR" == "db11-crew" ]]; then
+            python3 scripts/materialize_bundle.py \
+              --package db11-crew \
+              --destination-root "$WORKSPACE"
+          fi
       - name: Publish validated workspace with provenance
         working-directory: ${{ needs.validate.outputs.workspace }}
         run: npm publish --access public --provenance
