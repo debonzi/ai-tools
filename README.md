@@ -6,7 +6,6 @@ This repository is the private workspace coordinator and source catalog for thre
 
 | Package | Included resources | Intended use |
 | --- | --- | --- |
-| [`@debonzi/db11-crew`](packages/db11-crew/README.md) | Crewlead extension, explicit member companion, `db11-crew` and `db11-crew-setup` skills, and role profiles | Local Linux Scout, Planner, and Builder orchestration |
 | [`@debonzi/db11-skills`](packages/db11-skills/README.md) | `db11-plan`, `db11-shipit`, and `db11-journey` skills | Durable planning, implementation delivery, and staged development workflows |
 | [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/README.md) | Codex Usage Pi extension | OpenAI Codex quota display and on-demand usage reports |
 | [`@debonzi/pi-copilot-usage`](packages/pi-copilot-usage/README.md) | GitHub Copilot Usage Pi extension | GitHub Copilot allowance display and on-demand usage reports |
@@ -20,15 +19,12 @@ This repository defines the npm package identities and release configuration, bu
 Install only the packages you want:
 
 ```sh
-pi install npm:@debonzi/db11-crew@0.2.0
 pi install npm:@debonzi/db11-skills
 pi install npm:@debonzi/pi-codex-usage
 pi install npm:@debonzi/pi-copilot-usage
 ```
 
 `pi install` installs a complete package and enables its declared resources by default. It writes to global settings unless `-l` is supplied for a project-local installation. Use `pi config` to control globally loaded resources, or `pi config -l` to start in project overrides with inherited global resources shown dimmed.
-
-`@debonzi/db11-crew` uses the canonical state root `~/.local/state/db11-crew`, marker identity `db11-crew`, and Builder refs below `refs/heads/db11-crew/<run-id>`. Installation remains passive: read-only diagnosis, exact-session activation, reload, integration, cleanup, rollback, and publication are separate authorization boundaries. Its Crewlead extension is auto-loaded, while its member companion is packaged for explicit authenticated member sessions and is not auto-discovered.
 
 `@debonzi/db11-skills` distributes the standalone `db11-plan`, `db11-shipit`, and `db11-journey` skills. A script used only through a skill remains bundled with that skill.
 
@@ -37,8 +33,6 @@ If Pi is already running after an install or configuration change, run `/reload`
 ## Deprecated resources
 
 The `db11-spec` skill is deprecated and no longer distributed by `@debonzi/db11-skills`. Its final resources are preserved under [`deprecated/db11-spec`](deprecated/db11-spec) for historical reference.
-
-The deprecated `@debonzi/db11-crew` 0.1.x source remains preserved under [`deprecated/db11-crew`](deprecated/db11-crew) for historical reference. The active 0.2.0 workspace under [`packages/db11-crew`](packages/db11-crew) is the sole current implementation; historical source does not define its resource identity, readiness, or ownership.
 
 ## Migrate from the former aggregate package
 
@@ -51,7 +45,7 @@ The former `@debonzi/dbz-ai-tools` package cannot be migrated automatically into
    | --- | --- |
    | `dbz-issues` | No replacement; the issue-management skill is retired |
    | `dbz-spec` | No replacement; the later `db11-spec` skill is also deprecated |
-   | `dbz-crew`, its setup flow, CLI, and event extension | `@debonzi/db11-crew` 0.2.0; install only when selected, then diagnose, reload, and activate through their separate explicit boundaries |
+   | `dbz-crew`, its setup flow, CLI, and event extension | No replacement |
    | `codex-usage` | `@debonzi/pi-codex-usage`: `codex-usage` |
 
 3. Remove the old source that `pi list` reports:
@@ -114,7 +108,6 @@ See the [`@debonzi/db11-skills` package guide](packages/db11-skills/README.md#mi
 From a clone of this repository, install a workspace by its explicit local path:
 
 ```sh
-pi install ./packages/db11-crew
 pi install ./packages/db11-skills
 pi install ./packages/pi-codex-usage
 pi install ./packages/pi-copilot-usage

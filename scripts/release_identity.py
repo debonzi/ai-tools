@@ -20,11 +20,6 @@ class PackageIdentity:
 
 
 PACKAGE_IDENTITIES = {
-    "db11-crew": PackageIdentity(
-        selector="db11-crew",
-        workspace="packages/db11-crew",
-        npm_name="@debonzi/db11-crew",
-    ),
     "db11-skills": PackageIdentity(
         selector="db11-skills",
         workspace="packages/db11-skills",

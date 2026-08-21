@@ -17,7 +17,6 @@ sys.modules[SPEC.name] = RELEASE_IDENTITY
 SPEC.loader.exec_module(RELEASE_IDENTITY)
 
 EXPECTED = {
-    "db11-crew": ("packages/db11-crew", "@debonzi/db11-crew"),
     "db11-skills": ("packages/db11-skills", "@debonzi/db11-skills"),
     "pi-codex-usage": ("packages/pi-codex-usage", "@debonzi/pi-codex-usage"),
     "pi-copilot-usage": (
@@ -52,6 +51,7 @@ class ReleaseIdentityTests(unittest.TestCase):
             "dbz-skills-v1.2.3",
             "dbz-crew-v1.2.3",
             "unknown-v1.2.3",
+            "db11-crew-v1.2.3",
             "db11-crew-v01.2.3",
             "db11-crew-v1.2",
             "db11-crew-v1.2.3-beta.1",
@@ -61,7 +61,7 @@ class ReleaseIdentityTests(unittest.TestCase):
         for tag in invalid_tags:
             with self.subTest(tag=tag), self.assertRaises(RELEASE_IDENTITY.IdentityError):
                 RELEASE_IDENTITY.parse_tag(tag)
-        for selector in ("dbz-ai-tools-workspace", "dbz-skills", "dbz-crew"):
+        for selector in ("dbz-ai-tools-workspace", "dbz-skills", "dbz-crew", "db11-crew"):
             with self.subTest(selector=selector), self.assertRaises(
                 RELEASE_IDENTITY.IdentityError
             ):
@@ -117,59 +117,6 @@ class ReleaseConfigurationTests(unittest.TestCase):
             if changeset.name == "README.md":
                 continue
             self.assertNotIn("@debonzi/dbz-ai-tools", changeset.read_text(encoding="utf-8"))
-        crew_changeset = (ROOT / ".changeset/restore-db11-crew.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('"@debonzi/db11-crew": none', crew_changeset)
-        crew_changelog = (ROOT / "packages/db11-crew/CHANGELOG.md").read_text(
-            encoding="utf-8"
-        )
-        release_guide = (ROOT / "docs/releasing.md").read_text(encoding="utf-8")
-        crew_release_surfaces = (crew_changeset, crew_changelog, release_guide)
-        for evidence in (
-            "`~/.local/state/db11-crew`",
-            "marker identity `db11-crew`",
-            "`refs/heads/db11-crew/<run-id>`",
-            "explicit activation",
-            "exact-session reload",
-        ):
-            with self.subTest(evidence=evidence):
-                for surface in crew_release_surfaces:
-                    self.assertIn(evidence, surface)
-        for obsolete in (
-            "db11-crew-v2",
-            "cutover-rollback.md",
-            "hard cutover",
-            "hard-cutover",
-            "old-runtime quiescence",
-            "generation reassessment",
-            "noncanonical residue",
-        ):
-            with self.subTest(obsolete=obsolete):
-                for surface in crew_release_surfaces:
-                    self.assertNotIn(obsolete, surface.lower())
-        self.assertIn("no production dependencies", release_guide)
-        self.assertIn("member companion only for explicit authenticated member loading", release_guide)
-        status = subprocess.run(
-            ["npx", "changeset", "status", "--output", "changeset-status.tmp.json"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.addCleanup((ROOT / "changeset-status.tmp.json").unlink, missing_ok=True)
-        self.assertEqual(status.returncode, 0, status.stderr or status.stdout)
-        changeset_status = json.loads(
-            (ROOT / "changeset-status.tmp.json").read_text(encoding="utf-8")
-        )
-        crew_release = next(
-            release
-            for release in changeset_status["releases"]
-            if release["name"] == "@debonzi/db11-crew"
-        )
-        self.assertEqual(crew_release["type"], "none")
-        self.assertEqual(crew_release["oldVersion"], "0.2.0")
-        self.assertEqual(crew_release["newVersion"], "0.2.0")
         codex_changelog = (ROOT / "packages/pi-codex-usage/CHANGELOG.md").read_text(
             encoding="utf-8"
         )
@@ -213,8 +160,6 @@ class ReleaseConfigurationTests(unittest.TestCase):
         validate_commands = re.findall(r"(?m)^      - run: (.+)$", validation_block)
         self.assertEqual(validate_commands[-3:], ["npm ci", "npm run check", "npm run pack:check"])
         self.assertIn("needs: validate", publication_block)
-        self.assertIn("scripts/materialize_bundle.py", publication_block)
-        self.assertIn("--package db11-crew", publication_block)
         self.assertIn("id-token: write", publication_block)
         self.assertIn("environment:", publication_block)
         self.assertIn("working-directory: ${{ needs.validate.outputs.workspace }}", publication_block)

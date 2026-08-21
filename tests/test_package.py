@@ -4,7 +4,6 @@ import io
 import json
 from pathlib import Path, PurePosixPath
 import re
-import shutil
 import stat
 import subprocess
 import tarfile
@@ -14,86 +13,6 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "packages"
 EXPECTED_WORKSPACES = {
-    "db11-crew": {
-        "name": "@debonzi/db11-crew",
-        "version": "0.2.0",
-        "pi": {
-            "extensions": ["./agents/pi/extensions/db11-crew/index.ts"],
-            "skills": ["./skills"],
-        },
-        "peers": {
-            "@earendil-works/pi-coding-agent": "*",
-            "@earendil-works/pi-ai": "*",
-            "@earendil-works/pi-tui": "*",
-            "typebox": "*",
-        },
-        "dev_dependencies": {
-            "@types/node": "24.13.3",
-            "typescript": "7.0.2",
-        },
-        "files": {
-            "README.md",
-            "LICENSE",
-            "CHANGELOG.md",
-            "config/config.example.json",
-            "docs/operations.md",
-            "skills/db11-crew/SKILL.md",
-            "skills/db11-crew/references/README.md",
-            "skills/db11-crew/references/dispatch.md",
-            "skills/db11-crew/references/operations.md",
-            "skills/db11-crew/references/safety.md",
-            "skills/db11-crew-setup/SKILL.md",
-            "skills/db11-crew-setup/references/README.md",
-            "skills/db11-crew-setup/references/diagnostics.md",
-            "skills/db11-crew-setup/references/settings.md",
-            "skills/db11-crew-setup/references/herdr-integration.md",
-            "skills/db11-crew-setup/references/activation-reload.md",
-            "agents/pi/extensions/db11-crew/index.ts",
-            "agents/pi/extensions/db11-crew-member/index.ts",
-            "agents/pi/roles/manifest.json",
-            "agents/pi/roles/scout.md",
-            "agents/pi/roles/planner.md",
-            "agents/pi/roles/builder.md",
-            "src/adapters/git/disposition.ts",
-            "src/adapters/git/isolation.ts",
-            "src/adapters/herdr/adapter.ts",
-            "src/adapters/herdr/contracts.ts",
-            "src/adapters/herdr/protocol17.ts",
-            "src/adapters/herdr/transport.ts",
-            "src/adapters/process.ts",
-            "src/adapters/pi/launcher.ts",
-            "src/config/config.ts",
-            "src/config/store.ts",
-            "src/companion/extension.ts",
-            "src/companion/protocol.ts",
-            "src/delivery/service.ts",
-            "src/delivery/transient.ts",
-            "src/crewlead/activation.ts",
-            "src/crewlead/extension.ts",
-            "src/crewlead/runtime.ts",
-            "src/orchestration/disposition.ts",
-            "src/orchestration/lifecycle.ts",
-            "src/orchestration/recovery.ts",
-            "src/protocol/compatibility.ts",
-            "src/protocol/contracts.ts",
-            "src/protocol/limits.ts",
-            "src/protocol/validate.ts",
-            "src/roles/resolve.ts",
-            "src/security/binding.ts",
-            "src/security/capabilities.ts",
-            "src/security/errors.ts",
-            "src/security/json.ts",
-            "src/security/redaction.ts",
-            "src/setup/commands.ts",
-            "src/setup/diagnostics.ts",
-            "src/state/claims.ts",
-            "src/state/contracts.ts",
-            "src/state/filesystem.ts",
-            "src/state/leases.ts",
-            "src/state/store.ts",
-            "src/ui/observability.ts",
-        },
-    },
     "db11-skills": {
         "name": "@debonzi/db11-skills",
         "pi": {"skills": ["./skills"]},
@@ -178,14 +97,11 @@ EXPECTED_WORKSPACES = {
     },
 }
 EXPECTED_SKILL_NAMES = {
-    "db11-crew",
-    "db11-crew-setup",
     "db11-plan",
     "db11-shipit",
     "db11-journey",
 }
 EXECUTABLE_PATHS = {
-    "db11-crew": set(),
     "db11-skills": set(),
     "pi-codex-usage": set(),
     "pi-copilot-usage": set(),
@@ -259,8 +175,9 @@ class PackageManifestTests(unittest.TestCase):
 
     def test_deprecated_resources_remain_separate_from_active_workspaces(self) -> None:
         self.assertTrue((ROOT / "deprecated/db11-crew/package.json").is_file())
+        self.assertTrue((ROOT / "deprecated/db11-crew.2/package.json").is_file())
         self.assertTrue((ROOT / "deprecated/db11-spec/SKILL.md").is_file())
-        self.assertTrue((PACKAGES / "db11-crew/package.json").is_file())
+        self.assertFalse((PACKAGES / "db11-crew").exists())
         self.assertFalse((PACKAGES / "db11-skills/skills/db11-spec").exists())
 
     def test_publishable_manifests_have_exact_resource_boundaries(self) -> None:
@@ -463,341 +380,15 @@ class PackageManifestTests(unittest.TestCase):
                     self.assertTrue(path.stat().st_mode & stat.S_IXUSR)
 
 
-class Db11CrewPackageTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.package_root = PACKAGES / "db11-crew"
-        self.manifest = load_manifest(self.package_root)
-
-    def test_manifest_reserves_only_the_approved_pi_entry_points(self) -> None:
-        self.assertEqual(self.manifest["name"], "@debonzi/db11-crew")
-        self.assertEqual(self.manifest["version"], "0.2.0")
-        self.assertEqual(
-            self.manifest["pi"],
-            {
-                "extensions": ["./agents/pi/extensions/db11-crew/index.ts"],
-                "skills": ["./skills"],
-            },
-        )
-        self.assertNotIn(
-            "./agents/pi/extensions/db11-crew-member/index.ts",
-            self.manifest["pi"]["extensions"],
-        )
-        self.assertNotIn("bin", self.manifest)
-        self.assertTrue(LIFECYCLE_SCRIPTS.isdisjoint(self.manifest.get("scripts", {})))
-
-    def test_entry_points_remain_source_only_and_member_requires_explicit_loading(self) -> None:
-        expected = {
-            "agents/pi/extensions/db11-crew/index.ts": (
-                'import { fileURLToPath } from "node:url";\n\n'
-                'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";\n\n'
-                'import { installCrewleadExtension } from "../../../../src/crewlead/extension.ts";\n\n'
-                "export default function db11Crew(pi: ExtensionAPI): void {\n"
-                "  installCrewleadExtension(pi, { extensionPath: fileURLToPath(import.meta.url) });\n"
-                "}\n"
-            ),
-            "agents/pi/extensions/db11-crew-member/index.ts": (
-                'import { fileURLToPath } from "node:url";\n\n'
-                'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";\n\n'
-                'import { installMemberCompanion } from "../../../../src/companion/extension.ts";\n\n'
-                "export default function db11CrewMember(pi: ExtensionAPI): void {\n"
-                "  installMemberCompanion(pi, { extensionPath: fileURLToPath(import.meta.url) });\n"
-                "}\n"
-            ),
-        }
-        for relative, content in expected.items():
-            with self.subTest(path=relative):
-                self.assertEqual(
-                    (self.package_root / relative).read_text(encoding="utf-8"), content
-                )
-
-    def test_approved_component_and_test_boundaries_are_present(self) -> None:
-        expected_directories = {
-            "src/protocol": {
-                "compatibility.ts",
-                "contracts.ts",
-                "limits.ts",
-                "validate.ts",
-            },
-            "src/config": {"config.ts", "store.ts"},
-            "src/security": {
-                "binding.ts",
-                "capabilities.ts",
-                "errors.ts",
-                "json.ts",
-                "redaction.ts",
-            },
-            "src/state": {
-                "claims.ts",
-                "contracts.ts",
-                "filesystem.ts",
-                "leases.ts",
-                "store.ts",
-            },
-            "src/roles": {"resolve.ts"},
-            "src/adapters/herdr": {
-                "adapter.ts",
-                "contracts.ts",
-                "protocol17.ts",
-                "transport.ts",
-            },
-            "src/adapters/pi": {".gitkeep", "launcher.ts"},
-            "src/adapters/git": {"disposition.ts", "isolation.ts"},
-            "src/adapters/wyrd": set(),
-            "src/adapters/web": {".gitkeep"},
-            "src/orchestration": {"disposition.ts", "lifecycle.ts", "recovery.ts"},
-            "src/setup": {"commands.ts", "diagnostics.ts"},
-            "src/crewlead": {".gitkeep", "activation.ts", "extension.ts", "runtime.ts"},
-            "src/companion": {".gitkeep", "extension.ts", "protocol.ts"},
-            "src/delivery": {".gitkeep", "service.ts", "transient.ts"},
-            "src/ui": {".gitkeep", "observability.ts"},
-            "tests/unit": {
-                "activation.test.ts",
-                "compatibility.test.ts",
-                "config.test.ts",
-                "contracts.test.ts",
-                "lifecycle.test.ts",
-                "resource-identity.test.ts",
-                "roles.test.ts",
-                "setup.test.ts",
-            },
-            "tests/security": {
-                "capabilities.test.ts",
-                "claims.test.ts",
-                "filesystem.test.ts",
-                "helpers.ts",
-                "store.test.ts",
-            },
-            "tests/component": {
-                "companion.test.ts",
-                "crewlead.test.ts",
-                "delivery-ui.test.ts",
-                "herdr.test.ts",
-                "member-launch.test.ts",
-                "setup-commands.test.ts",
-            },
-            "tests/integration": {"disposition.test.ts", "git-wyrd.test.ts"},
-            "tests/fixtures": {".gitkeep", "archive-allowlist.txt"},
-            "tests/smoke": {".gitkeep"},
-        }
-        for relative, expected_files in expected_directories.items():
-            with self.subTest(path=relative):
-                directory = self.package_root / relative
-                self.assertTrue(directory.is_dir(), relative)
-                self.assertEqual({path.name for path in directory.iterdir()}, expected_files, relative)
-
-    def test_crew_skills_use_progressive_policy_and_setup_references(self) -> None:
-        policy_root = self.package_root / "skills/db11-crew"
-        setup_root = self.package_root / "skills/db11-crew-setup"
-        policy = (policy_root / "SKILL.md").read_text(encoding="utf-8")
-        setup = (setup_root / "SKILL.md").read_text(encoding="utf-8")
-
-        for relative in (
-            "references/dispatch.md",
-            "references/operations.md",
-            "references/safety.md",
-        ):
-            self.assertIn(relative, policy)
-            self.assertTrue((policy_root / relative).is_file(), relative)
-        for relative in (
-            "references/diagnostics.md",
-            "references/settings.md",
-            "references/herdr-integration.md",
-            "references/activation-reload.md",
-        ):
-            self.assertIn(relative, setup)
-            self.assertTrue((setup_root / relative).is_file(), relative)
-        self.assertFalse((setup_root / "references/cutover-rollback.md").exists())
-
-        policy_frontmatter = re.match(r"^---\n(.*?)\n---\n", policy, re.DOTALL)
-        self.assertIsNotNone(policy_frontmatter)
-        self.assertRegex(
-            policy_frontmatter.group(1),
-            r"(?m)^disable-model-invocation:\s*true$",
-        )
-        self.assertNotIn("disable-model-invocation: true", setup)
-        for requirement in (
-            "passive by default",
-            "exact, image-free `/skill:db11-crew`",
-            "`interactive` or `rpc`",
-            "is a designation request",
-            "Never infer activation",
-            "permanently designates only the exact current Pi session",
-            "managed-member sessions do not inherit or transfer",
-        ):
-            self.assertIn(requirement, policy)
-
-        self.assertIn("Never recreate orchestration with shell commands", policy)
-        self.assertIn("read-only", setup.lower())
-        self.assertIn("/db11-crew-setup apply", setup)
-        self.assertNotIn("herdr integration install pi\n```", setup)
-        self.assertLess(len(policy), 6_000)
-        self.assertLess(len(setup), 6_000)
-
-        operations = (self.package_root / "docs/operations.md").read_text(encoding="utf-8")
-        for heading in (
-            "Supported installation",
-            "Trust",
-            "Support matrix",
-            "Configuration v2",
-            "Canonical identity and read-only diagnosis",
-            "Explicit activation",
-            "Exact same-session reload and restoration",
-            "Current-resource persistence",
-            "Safe operations",
-            "Non-goals",
-        ):
-            self.assertIn(f"## {heading}", operations)
-
-    def test_current_delivery_surfaces_use_only_canonical_resource_identity(self) -> None:
-        canonical_surfaces = {
-            "root README": ROOT / "README.md",
-            "package README": self.package_root / "README.md",
-            "operations": self.package_root / "docs/operations.md",
-            "activation and reload": (
-                self.package_root
-                / "skills/db11-crew-setup/references/activation-reload.md"
-            ),
-            "changelog": self.package_root / "CHANGELOG.md",
-            "changeset": ROOT / ".changeset/restore-db11-crew.md",
-            "release guide": ROOT / "docs/releasing.md",
-        }
-        for label, path in canonical_surfaces.items():
-            with self.subTest(surface=label):
-                text = path.read_text(encoding="utf-8")
-                self.assertIn("`~/.local/state/db11-crew`", text)
-                self.assertIn("`refs/heads/db11-crew/<run-id>`", text)
-
-        obsolete_guidance = (
-            "db11-crew-v2",
-            "cutover-rollback.md",
-            "hard cutover",
-            "hard-cutover",
-            "old-worker quiescence",
-            "old-runtime quiescence",
-            "generation reassessment",
-            "noncanonical residue",
-        )
-        guidance_paths = [
-            ROOT / "README.md",
-            ROOT / "docs/releasing.md",
-            *self.package_root.rglob("*.md"),
-        ]
-        for path in guidance_paths:
-            text = path.read_text(encoding="utf-8").lower()
-            for obsolete in obsolete_guidance:
-                with self.subTest(path=path, obsolete=obsolete):
-                    self.assertNotIn(obsolete, text)
-
-        package_files = set(self.manifest["files"])
-        self.assertIn(
-            "skills/db11-crew-setup/references/activation-reload.md",
-            package_files,
-        )
-        self.assertNotIn(
-            "skills/db11-crew-setup/references/cutover-rollback.md",
-            package_files,
-        )
-        for source in (self.package_root / "src").rglob("*.ts"):
-            with self.subTest(source=source):
-                self.assertNotIn(
-                    "db11-crew-v2",
-                    source.read_text(encoding="utf-8"),
-                )
-
-    def test_bundle_materializer_uses_the_locked_production_closure(self) -> None:
-        result = subprocess.run(
-            [
-                "python3",
-                str(ROOT / "scripts/materialize_bundle.py"),
-                "--package",
-                "db11-crew",
-                "--print-plan",
-            ],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
-        lock_keys = [line for line in result.stdout.splitlines() if line]
-        self.assertEqual(lock_keys, [])
-        self.assertNotIn("node_modules/typescript", lock_keys)
-        self.assertFalse(any("@types/node" in key for key in lock_keys))
-        for lock_key in lock_keys:
-            locked = LOCKFILE["packages"][lock_key]
-            self.assertIn("integrity", locked, lock_key)
-            self.assertIn("resolved", locked, lock_key)
-
-    def test_role_and_configuration_resources_are_strict_versioned_contracts(self) -> None:
-        role_root = self.package_root / "agents/pi/roles"
-        role_manifest = json.loads((role_root / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(role_manifest["schemaVersion"], 2)
-        self.assertEqual(role_manifest["package"], {"name": "@debonzi/db11-crew", "version": "0.2.0"})
-        self.assertEqual([role["id"] for role in role_manifest["roles"]], ["scout", "planner", "builder"])
-        self.assertEqual(len(role_manifest["roles"]), 3)
-        for role in role_manifest["roles"]:
-            self.assertEqual(role["profileVersion"], 2)
-            profile = self.package_root / role["profilePath"]
-            self.assertTrue(profile.is_file(), profile)
-            text = profile.read_text(encoding="utf-8").lower()
-            self.assertNotIn("placeholder", text)
-            self.assertIn("cooperative policy", text)
-            for obsolete in ("requiredCapabilities", "capabilities", "tools", "activeTools", "readinessChecks", "providerVariant"):
-                self.assertNotIn(obsolete, role)
-
-        config = json.loads(
-            (self.package_root / "config/config.example.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(config["schemaVersion"], 2)
-        self.assertEqual(config["limits"], {
-            "maxActiveMembers": 4,
-            "maxOpenMemberResources": 6,
-            "maxQueuedDelegations": 6,
-        })
-        self.assertEqual(config["retention"]["policy"], "auto_close")
-        self.assertNotIn("scoutWeb", config)
-
-
 class PackageArchiveTests(unittest.TestCase):
     def expected_archive_paths(self, directory: str, expected: dict) -> set[str]:
-        if directory != "db11-crew":
-            return {"package.json", *expected["files"]}
-        allowlist = PACKAGES / directory / "tests/fixtures/archive-allowlist.txt"
-        paths = {
-            line
-            for line in allowlist.read_text(encoding="utf-8").splitlines()
-            if line and not line.startswith("#")
-        }
-        self.assertTrue(paths, allowlist)
-        return paths
+        return {"package.json", *expected["files"]}
 
     def pack_workspace(self, directory: str, expected: dict) -> tuple[dict, Path, tempfile.TemporaryDirectory]:
         temporary = tempfile.TemporaryDirectory(prefix=f"pack-{directory}-")
         self.addCleanup(temporary.cleanup)
         destination = Path(temporary.name)
         package_root = PACKAGES / directory
-        if directory == "db11-crew":
-            package_root = destination / "staging"
-            shutil.copytree(
-                PACKAGES / directory,
-                package_root,
-                ignore=shutil.ignore_patterns("node_modules", "__pycache__"),
-            )
-            staged = subprocess.run(
-                [
-                    "python3",
-                    str(ROOT / "scripts/materialize_bundle.py"),
-                    "--package",
-                    directory,
-                    "--destination-root",
-                    str(package_root),
-                ],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(staged.returncode, 0, staged.stderr or staged.stdout)
         result = subprocess.run(
             [
                 "npm",
@@ -892,10 +483,6 @@ class PackageArchiveTests(unittest.TestCase):
                 self.assertTrue(set(members).isdisjoint(other_files - all_expected[directory]))
                 self.assert_runtime_imports_are_packed(directory, root_owned)
                 self.assert_manifest_resources_are_packed(packed_manifest, set(members))
-                if directory == "db11-crew":
-                    self.assertNotIn("dependencies", packed_manifest)
-                    self.assertNotIn("bundledDependencies", packed_manifest)
-                    self.assertNotIn("bin", packed_manifest)
 
     def assert_runtime_imports_are_packed(self, directory: str, packed: set[str]) -> None:
         package_root = PACKAGES / directory
