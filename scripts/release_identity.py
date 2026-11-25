@@ -20,11 +20,6 @@ class PackageIdentity:
 
 
 PACKAGE_IDENTITIES = {
-    "db11-skills": PackageIdentity(
-        selector="db11-skills",
-        workspace="packages/db11-skills",
-        npm_name="@debonzi/db11-skills",
-    ),
     "pi-codex-usage": PackageIdentity(
         selector="pi-codex-usage",
         workspace="packages/pi-codex-usage",

@@ -106,6 +106,7 @@ assert not trust_path.exists(), "package installation must not create a trust de
 
 pi_list = pi_list_path.read_text(encoding="utf-8")
 assert str(package_root) in pi_list, pi_list
+assert "db11-skills" not in pi_list.lower(), pi_list
 assert "db11-crew" not in pi_list.lower(), pi_list
 assert "dbz-crew" not in pi_list.lower(), pi_list
 
@@ -125,15 +126,7 @@ owned = {
     and Path(command["sourceInfo"].get("baseDir", "")).resolve() == package_root
 }
 
-if selector == "db11-skills":
-    assert manifest["pi"] == {"skills": ["./skills"]}
-    assert set(owned) == {
-        "skill:db11-plan",
-        "skill:db11-shipit",
-        "skill:db11-journey",
-    }, owned
-    assert all(command["source"] == "skill" for command in owned.values())
-elif selector == "pi-codex-usage":
+if selector == "pi-codex-usage":
     assert manifest["pi"] == {
         "extensions": ["./agents/pi/extensions/codex-usage/index.ts"],
     }
@@ -151,6 +144,9 @@ else:
 command_names = {command["name"] for command in commands}
 prohibited_commands = {
     "skill:db11-issues",
+    "skill:db11-journey",
+    "skill:db11-plan",
+    "skill:db11-shipit",
     "skill:db11-spec",
     "skill:dbz-crew",
     "skill:dbz-crew-setup",
@@ -167,12 +163,8 @@ PY
 requested="${1:-all}"
 case "$requested" in
     all)
-        run_package_test db11-skills @debonzi/db11-skills
         run_package_test pi-codex-usage @debonzi/pi-codex-usage
         run_package_test pi-copilot-usage @debonzi/pi-copilot-usage
-        ;;
-    db11-skills)
-        run_package_test db11-skills @debonzi/db11-skills
         ;;
     pi-codex-usage)
         run_package_test pi-codex-usage @debonzi/pi-codex-usage

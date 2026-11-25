@@ -12,54 +12,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "packages"
+DEPRECATED = ROOT / "deprecated"
 EXPECTED_WORKSPACES = {
-    "db11-skills": {
-        "name": "@debonzi/db11-skills",
-        "pi": {"skills": ["./skills"]},
-        "peers": {},
-        "files": {
-            "README.md",
-            "LICENSE",
-            "CHANGELOG.md",
-            "skills/db11-plan/SKILL.md",
-            "skills/db11-plan/agents/openai.yaml",
-            "skills/db11-plan/assets/ticket-body.md",
-            "skills/db11-plan/assets/topic-task-body.md",
-            "skills/db11-plan/references/protocol.md",
-            "skills/db11-plan/references/wyrd-model.md",
-            "skills/db11-plan/references/conversation-format.md",
-            "skills/db11-plan/references/operations/start.md",
-            "skills/db11-plan/references/operations/resume.md",
-            "skills/db11-plan/references/operations/status.md",
-            "skills/db11-plan/references/operations/discuss.md",
-            "skills/db11-plan/references/operations/conclude.md",
-            "skills/db11-shipit/SKILL.md",
-            "skills/db11-shipit/agents/openai.yaml",
-            "skills/db11-shipit/assets/implementation-ticket-body.md",
-            "skills/db11-shipit/assets/implementation-task-body.md",
-            "skills/db11-shipit/references/protocol.md",
-            "skills/db11-shipit/references/wyrd-model.md",
-            "skills/db11-shipit/references/conversation-format.md",
-            "skills/db11-shipit/references/operations/start.md",
-            "skills/db11-shipit/references/operations/resume.md",
-            "skills/db11-shipit/references/operations/status.md",
-            "skills/db11-shipit/references/operations/plan.md",
-            "skills/db11-shipit/references/operations/materialize.md",
-            "skills/db11-shipit/references/operations/work.md",
-            "skills/db11-shipit/references/operations/conclude.md",
-            "skills/db11-journey/SKILL.md",
-            "skills/db11-journey/agents/openai.yaml",
-            "skills/db11-journey/references/concepts.md",
-            "skills/db11-journey/references/wyrd-model.md",
-            "skills/db11-journey/references/operations/start.md",
-            "skills/db11-journey/references/operations/resume.md",
-            "skills/db11-journey/references/operations/work.md",
-            "skills/db11-journey/references/operations/advance.md",
-            "skills/db11-journey/references/phases/definition.md",
-            "skills/db11-journey/references/phases/planning.md",
-            "skills/db11-journey/references/phases/implementation.md",
-        },
-    },
     "pi-codex-usage": {
         "name": "@debonzi/pi-codex-usage",
         "pi": {"extensions": ["./agents/pi/extensions/codex-usage/index.ts"]},
@@ -95,16 +49,6 @@ EXPECTED_WORKSPACES = {
             "agents/pi/extensions/copilot-usage/index.ts",
         },
     },
-}
-EXPECTED_SKILL_NAMES = {
-    "db11-plan",
-    "db11-shipit",
-    "db11-journey",
-}
-EXECUTABLE_PATHS = {
-    "db11-skills": set(),
-    "pi-codex-usage": set(),
-    "pi-copilot-usage": set(),
 }
 LIFECYCLE_SCRIPTS = {
     "preinstall",
@@ -173,12 +117,32 @@ class PackageManifestTests(unittest.TestCase):
             set(EXPECTED_WORKSPACES),
         )
 
-    def test_deprecated_resources_remain_separate_from_active_workspaces(self) -> None:
-        self.assertTrue((ROOT / "deprecated/db11-crew/package.json").is_file())
-        self.assertTrue((ROOT / "deprecated/db11-crew.2/package.json").is_file())
-        self.assertTrue((ROOT / "deprecated/db11-spec/SKILL.md").is_file())
-        self.assertFalse((PACKAGES / "db11-crew").exists())
-        self.assertFalse((PACKAGES / "db11-skills/skills/db11-spec").exists())
+    def test_lockfile_contains_only_active_workspaces(self) -> None:
+        entries = LOCKFILE["packages"]
+        self.assertEqual(entries[""]["workspaces"], ["packages/*"])
+        self.assertEqual(
+            {path for path in entries if path.startswith("packages/")},
+            {f"packages/{directory}" for directory in EXPECTED_WORKSPACES},
+        )
+        self.assertFalse(any(path.startswith("deprecated/") for path in entries))
+        self.assertNotIn("node_modules/@debonzi/db11-skills", entries)
+
+    def test_deprecated_resources_remain_separate_from_active_resources(self) -> None:
+        archived_package = DEPRECATED / "db11-skills"
+        manifest = load_manifest(archived_package)
+        self.assertEqual(manifest["name"], "@debonzi/db11-skills")
+        self.assertIs(manifest.get("private"), True)
+        self.assertFalse((PACKAGES / "db11-skills").exists())
+        for skill in ("db11-plan", "db11-shipit", "db11-journey"):
+            with self.subTest(skill=skill):
+                self.assertTrue((archived_package / "skills" / skill / "SKILL.md").is_file())
+                self.assertFalse((ROOT / "skills" / skill).exists())
+
+        self.assertTrue((DEPRECATED / "context-footer.ts").is_file())
+        self.assertTrue((DEPRECATED / "db11-squad/ANOTATIONS.md").is_file())
+        extensions = ROOT / "agents/pi/extensions"
+        self.assertFalse((extensions / "context-footer.ts").exists())
+        self.assertFalse((extensions / "db11-squad").exists())
 
     def test_publishable_manifests_have_exact_resource_boundaries(self) -> None:
         for directory, expected in EXPECTED_WORKSPACES.items():
@@ -285,100 +249,6 @@ class PackageManifestTests(unittest.TestCase):
         self.assertIn('"User-Agent": "db11-copilot-usage"', extension)
         self.assertNotIn("dbz-copilot-usage", extension)
 
-    def test_every_workspace_skill_has_valid_unique_frontmatter(self) -> None:
-        names: set[str] = set()
-        for skill_file in sorted(PACKAGES.rglob("SKILL.md")):
-            text = skill_file.read_text(encoding="utf-8")
-            match = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
-            self.assertIsNotNone(match, skill_file)
-            frontmatter = match.group(1)
-            name_match = re.search(r"^name:\s*(\S+)\s*$", frontmatter, re.MULTILINE)
-            description_match = re.search(r"^description:\s*(.+)$", frontmatter, re.MULTILINE)
-            self.assertIsNotNone(name_match, skill_file)
-            self.assertIsNotNone(description_match, skill_file)
-            name = name_match.group(1)
-            self.assertEqual(name, skill_file.parent.name)
-            self.assertRegex(name, r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-            self.assertLessEqual(len(name), 64)
-            self.assertLessEqual(len(description_match.group(1)), 1024)
-            self.assertNotIn(name, names)
-            names.add(name)
-
-        self.assertEqual(names, EXPECTED_SKILL_NAMES)
-        self.assertFalse(any(path.parent.name == "dbz-ai-tools-setup" for path in PACKAGES.rglob("SKILL.md")))
-
-    def test_db11_shipit_uses_progressive_operation_references(self) -> None:
-        shipit_root = PACKAGES / "db11-skills/skills/db11-shipit"
-        skill = (shipit_root / "SKILL.md").read_text(encoding="utf-8")
-
-        for relative in (
-            "references/protocol.md",
-            "references/wyrd-model.md",
-            "references/conversation-format.md",
-            "references/operations/start.md",
-            "references/operations/resume.md",
-            "references/operations/status.md",
-            "references/operations/plan.md",
-            "references/operations/materialize.md",
-            "references/operations/work.md",
-            "references/operations/conclude.md",
-            "assets/implementation-ticket-body.md",
-            "assets/implementation-task-body.md",
-        ):
-            self.assertIn(relative, skill)
-            self.assertTrue((shipit_root / relative).is_file(), relative)
-
-        for requirement in (
-            "Do not preload every reference",
-            "plan:<plan-ticket-id>",
-            "protocol:db11_shipit",
-            "Only `work` authorizes",
-            "Never read or edit `.wyrd/`",
-            "Do not commit, push, deploy",
-        ):
-            self.assertIn(requirement, skill)
-
-        self.assertLess(len(skill), 6_000)
-
-    def test_db11_journey_uses_progressive_phase_references(self) -> None:
-        journey_root = PACKAGES / "db11-skills/skills/db11-journey"
-        skill = (journey_root / "SKILL.md").read_text(encoding="utf-8")
-
-        for relative in (
-            "references/concepts.md",
-            "references/wyrd-model.md",
-            "references/operations/start.md",
-            "references/operations/resume.md",
-            "references/operations/work.md",
-            "references/operations/advance.md",
-            "references/phases/definition.md",
-            "references/phases/planning.md",
-            "references/phases/implementation.md",
-        ):
-            self.assertIn(relative, skill)
-            self.assertTrue((journey_root / relative).is_file(), relative)
-
-        for requirement in (
-            "Do not preload every reference",
-            "journey:<codename>",
-            "phase:definition",
-            "phase:planning",
-            "phase:implementation",
-            "Never read or edit `.wyrd/`",
-            "Never delegate work to other agents automatically",
-        ):
-            self.assertIn(requirement, skill)
-
-        self.assertLess(len(skill), 6_000)
-
-    def test_bundled_python_entry_points_remain_executable(self) -> None:
-        for directory, paths in EXECUTABLE_PATHS.items():
-            for relative in paths:
-                path = PACKAGES / directory / relative
-                with self.subTest(path=path):
-                    self.assertTrue(path.is_file())
-                    self.assertTrue(path.stat().st_mode & stat.S_IXUSR)
-
 
 class PackageArchiveTests(unittest.TestCase):
     def expected_archive_paths(self, directory: str, expected: dict) -> set[str]:
@@ -443,9 +313,8 @@ class PackageArchiveTests(unittest.TestCase):
                 self.assertEqual(set(packed_manifest["files"]), expected["files"])
 
                 for path in all_expected[directory]:
-                    expected_executable = path in EXECUTABLE_PATHS[directory]
-                    self.assertEqual(bool(reported[path]["mode"] & stat.S_IXUSR), expected_executable, path)
-                    self.assertEqual(bool(members[path].mode & stat.S_IXUSR), expected_executable, path)
+                    self.assertFalse(reported[path]["mode"] & stat.S_IXUSR, path)
+                    self.assertFalse(members[path].mode & stat.S_IXUSR, path)
 
                 prohibited_parts = {
                     ".changeset",
@@ -467,15 +336,7 @@ class PackageArchiveTests(unittest.TestCase):
                     if "cache" in parts or "caches" in parts:
                         self.assertTrue(path.startswith("node_modules/"), path)
                     self.assertFalse(lowered.endswith((".pyc", ".test.ts")), path)
-                    self.assertNotIn("smoke_db11_crew.md", lowered)
                     self.assertNotIn("trust.json", lowered)
-                    self.assertNotIn("dbz-ai-tools-setup", lowered)
-                    self.assertNotIn("skills/db11-spec", lowered)
-                    self.assertNotIn("extensions/db11-crew-events", lowered)
-                    self.assertNotIn("skills/dbz-crew", lowered)
-                    self.assertNotIn("skills/dbz-crew-setup", lowered)
-                    self.assertNotIn("extensions/dbz-crew-events", lowered)
-                    self.assertNotIn("configure.py", lowered)
 
                 other_files = set().union(
                     *(paths for owner, paths in all_expected.items() if owner != directory)
@@ -505,9 +366,6 @@ class PackageArchiveTests(unittest.TestCase):
     def assert_manifest_resources_are_packed(self, manifest: dict, packed: set[str]) -> None:
         for extension in manifest["pi"].get("extensions", []):
             self.assertIn(PurePosixPath(extension).as_posix().removeprefix("./"), packed)
-        for skill_root in manifest["pi"].get("skills", []):
-            prefix = PurePosixPath(skill_root).as_posix().removeprefix("./").rstrip("/") + "/"
-            self.assertTrue(any(path.startswith(prefix) and path.endswith("/SKILL.md") for path in packed))
 
 
 if __name__ == "__main__":

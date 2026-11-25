@@ -17,7 +17,6 @@ sys.modules[SPEC.name] = RELEASE_IDENTITY
 SPEC.loader.exec_module(RELEASE_IDENTITY)
 
 EXPECTED = {
-    "db11-skills": ("packages/db11-skills", "@debonzi/db11-skills"),
     "pi-codex-usage": ("packages/pi-codex-usage", "@debonzi/pi-codex-usage"),
     "pi-copilot-usage": (
         "packages/pi-copilot-usage",
@@ -52,16 +51,16 @@ class ReleaseIdentityTests(unittest.TestCase):
             "dbz-crew-v1.2.3",
             "unknown-v1.2.3",
             "db11-crew-v1.2.3",
-            "db11-crew-v01.2.3",
-            "db11-crew-v1.2",
-            "db11-crew-v1.2.3-beta.1",
-            "db11-crew-v1.2.3/../../root",
+            "db11-skills-v1.2.3",
+            "pi-codex-usage-v01.2.3",
+            "pi-codex-usage-v1.2.3-beta.1",
+            "pi-codex-usage-v1.2.3/../../root",
             "pi-copilot-usage-v1.2",
         )
         for tag in invalid_tags:
             with self.subTest(tag=tag), self.assertRaises(RELEASE_IDENTITY.IdentityError):
                 RELEASE_IDENTITY.parse_tag(tag)
-        for selector in ("dbz-ai-tools-workspace", "dbz-skills", "dbz-crew", "db11-crew"):
+        for selector in ("dbz-ai-tools-workspace", "dbz-skills", "dbz-crew", "db11-crew", "db11-skills"):
             with self.subTest(selector=selector), self.assertRaises(
                 RELEASE_IDENTITY.IdentityError
             ):
@@ -86,10 +85,11 @@ class ReleaseIdentityTests(unittest.TestCase):
             self.assertIn(f"tag: {selector}-v{current_version}", valid.stdout)
 
         for arguments in (
-            ["PACKAGE=unknown", f"VERSION={versions['db11-skills']}"],
-            ["PACKAGE=dbz-crew", f"VERSION={versions['db11-skills']}"],
-            ["PACKAGE=db11-skills", "VERSION=999.999.999"],
-            ["PACKAGE=db11-skills", "VERSION=01.2.3"],
+            ["PACKAGE=unknown", f"VERSION={versions['pi-codex-usage']}"],
+            ["PACKAGE=dbz-crew", f"VERSION={versions['pi-codex-usage']}"],
+            ["PACKAGE=db11-skills", f"VERSION={versions['pi-codex-usage']}"],
+            ["PACKAGE=pi-codex-usage", "VERSION=999.999.999"],
+            ["PACKAGE=pi-codex-usage", "VERSION=01.2.3"],
         ):
             with self.subTest(arguments=arguments):
                 result = subprocess.run(
@@ -116,7 +116,11 @@ class ReleaseConfigurationTests(unittest.TestCase):
         for changeset in (ROOT / ".changeset").glob("*.md"):
             if changeset.name == "README.md":
                 continue
-            self.assertNotIn("@debonzi/dbz-ai-tools", changeset.read_text(encoding="utf-8"))
+            text = changeset.read_text(encoding="utf-8")
+            header = re.match(r"^---\n(.*?)^---$", text, re.MULTILINE | re.DOTALL)
+            self.assertIsNotNone(header, changeset)
+            for retired in ("@debonzi/dbz-ai-tools", "@debonzi/db11-skills"):
+                self.assertNotIn(retired, header.group(1), changeset)
         codex_changelog = (ROOT / "packages/pi-codex-usage/CHANGELOG.md").read_text(
             encoding="utf-8"
         )
@@ -179,6 +183,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
     def test_makefile_never_publishes_and_uses_package_qualified_identity(self) -> None:
         self.assertNotIn("npm publish", self.makefile)
+        self.assertNotIn("db11-skills", self.makefile)
         self.assertNotIn("require(\"./package.json\").version", self.makefile)
         self.assertIn("scripts/release_identity.py", self.makefile)
         self.assertIn("release-info", self.makefile)

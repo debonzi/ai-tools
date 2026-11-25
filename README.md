@@ -1,114 +1,60 @@
 # DB11 AI Tools package catalog
 
-This repository is the private workspace coordinator and source catalog for three independently installable [Pi](https://github.com/earendil-works/pi-mono) packages. The repository root is not a Pi package and is never published.
+This repository is the private workspace coordinator and source catalog for two independently installable [Pi](https://github.com/earendil-works/pi-mono) packages. The repository root is not a Pi package and is never published.
 
 ## Packages
 
 | Package | Included resources | Intended use |
 | --- | --- | --- |
-| [`@debonzi/db11-skills`](packages/db11-skills/README.md) | `db11-plan`, `db11-shipit`, and `db11-journey` skills | Durable planning, implementation delivery, and staged development workflows |
 | [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/README.md) | Codex Usage Pi extension | OpenAI Codex quota display and on-demand usage reports |
 | [`@debonzi/pi-copilot-usage`](packages/pi-copilot-usage/README.md) | GitHub Copilot Usage Pi extension | GitHub Copilot allowance display and on-demand usage reports |
 
-Package versions and releases are independent. There is no aggregate package that installs all of them.
+Package versions and releases are independent. There is no aggregate package that installs both.
 
 ## Install from npm
 
-This repository defines the npm package identities and release configuration, but it does not establish current registry publication. When a selected package is available on npm, review its source before installation: Pi extensions execute code and skills can direct the agent to run bundled scripts.
+This repository defines the npm package identities and release configuration, but it does not establish current registry publication. When a selected package is available on npm, review its source before installation: Pi extensions execute code.
 
 Install only the packages you want:
 
 ```sh
-pi install npm:@debonzi/db11-skills
 pi install npm:@debonzi/pi-codex-usage
 pi install npm:@debonzi/pi-copilot-usage
 ```
 
 `pi install` installs a complete package and enables its declared resources by default. It writes to global settings unless `-l` is supplied for a project-local installation. Use `pi config` to control globally loaded resources, or `pi config -l` to start in project overrides with inherited global resources shown dimmed.
 
-`@debonzi/db11-skills` distributes the standalone `db11-plan`, `db11-shipit`, and `db11-journey` skills. A script used only through a skill remains bundled with that skill.
-
 If Pi is already running after an install or configuration change, run `/reload` or restart Pi. Unpinned packages can be updated with `pi update --extensions`.
 
 ## Deprecated resources
 
-The `db11-spec` skill is deprecated and no longer distributed by `@debonzi/db11-skills`. Its final resources are preserved under [`deprecated/db11-spec`](deprecated/db11-spec) for historical reference.
+| Archived resource | Status |
+| --- | --- |
+| [`@debonzi/db11-skills`](deprecated/db11-skills/README.md) | `db11-plan`, `db11-shipit`, and `db11-journey` are deprecated. The package is no longer an active workspace or release target. |
+| [`context-footer`](deprecated/context-footer.ts) | The local Pi extension has been removed from `agents/pi/extensions/`. |
+| [`db11-squad`](deprecated/db11-squad/ANOTATIONS.md) | The proposal is retired. Only architectural notes were present; there was no runnable extension to remove. |
+
+The archives are kept for reference. This change does not modify existing Pi installations, Wyrd records, or npm registry metadata. `db11-issues` and `db11-spec` had already been retired and are not distributed by either active package.
+
+### Remove a retired standalone skills package
+
+Run `pi list` to identify any installed `@debonzi/db11-skills` or `@debonzi/dbz-skills` source. There is no replacement skills package in this repository. Pass the exact source shown (including any version pin, Git ref, or resolved local path) to `pi remove`. Use `-l` for project-local entries; if a source is installed in both scopes, remove each entry separately. Reload or restart Pi afterward.
+
+If you loaded `context-footer` by an explicit path, remove that path from your Pi configuration or launch command.
 
 ## Migrate from the former aggregate package
 
-The former `@debonzi/dbz-ai-tools` package cannot be migrated automatically into the three active npm identities. Preserve any intentional local settings and choose the replacement DB11 package or packages explicitly. There is no aggregate `@debonzi/db11-ai-tools` package.
+There is no automatic migration from `@debonzi/dbz-ai-tools` and no aggregate `@debonzi/db11-ai-tools` package. Of the former resources, only `codex-usage` has a replacement: `@debonzi/pi-codex-usage`. The former issues, spec, and crew resources have no replacement in this repository.
 
-1. Run `pi list`, `pi config`, and, when relevant, `pi config -l` to inspect the old installation and determine which resources you use.
-2. Map the former resources to their current packages and identities:
-
-   | Former resources | Current package and resources |
-   | --- | --- |
-   | `dbz-issues` | No replacement; the issue-management skill is retired |
-   | `dbz-spec` | No replacement; the later `db11-spec` skill is also deprecated |
-   | `dbz-crew`, its setup flow, CLI, and event extension | No replacement |
-   | `codex-usage` | `@debonzi/pi-codex-usage`: `codex-usage` |
-
-3. Remove the old source that `pi list` reports:
-
-   ```sh
-   pi remove npm:@debonzi/dbz-ai-tools
-   ```
-
-   For a former rolling Git installation, remove that source instead:
-
-   ```sh
-   pi remove git:github.com/debonzi/dbz-ai-tools
-   ```
-
-4. Install only the new npm packages you selected using the commands above.
-5. Review the newly loaded resources with `pi config` or `pi config -l`. Old package filters do not transfer to the new package identities, and this repository does not edit user settings or filters automatically.
-6. Run `/reload` or restart Pi when appropriate.
-
-## Migrate from the former standalone skills package
-
-The standalone skills package has a new Pi identity, while both former DBZ skills are retired:
-
-| Former identity | Current replacement |
-| --- | --- |
-| `@debonzi/dbz-skills` | `@debonzi/db11-skills` |
-| `dbz-issues` / `/skill:dbz-issues` | No replacement; the issue-management skill is retired |
-| `dbz-spec` / `/skill:dbz-spec` | No replacement; the later `db11-spec` skill is also deprecated |
-
-There are no temporary aliases for the former package or skill names. Migrate explicitly after the DB11 npm package is available:
-
-1. Run `pi list` in each relevant project. Under `User packages` (global) and `Project packages` (project-local), find the former source and copy the source value before any `(filtered)` status marker, including an npm version or Git ref when present. For a local source, use the resolved absolute path that Pi prints below it when removing; a relative local source in settings is not necessarily relative to the shell directory. If the package exists in both scopes, remove both entries separately.
-2. Pass the copied npm or Git source, or the resolved local path, to `pi remove`, using `-l` only for a project-local entry. For the common unpinned npm source, the commands are:
-
-   ```sh
-   # Global installation
-   pi remove npm:@debonzi/dbz-skills
-
-   # Project-local installation
-   pi remove npm:@debonzi/dbz-skills -l
-   ```
-
-   Use these literal commands only when `pi list` reports `npm:@debonzi/dbz-skills`; otherwise substitute the exact reported source.
-3. Install the DB11 npm package in the intended scope when you need `db11-plan`, `db11-shipit`, or `db11-journey`:
-
-   ```sh
-   # Global installation
-   pi install npm:@debonzi/db11-skills
-
-   # Project-local installation
-   pi install npm:@debonzi/db11-skills -l
-   ```
-
-4. Review global loading with `pi config` and project overrides with `pi config -l`. Package filters and enabled-resource choices do not transfer automatically. Configure `db11-plan`, `db11-shipit`, and `db11-journey` explicitly where needed, and remove stale issue or specification skill filters; project overrides can still affect a global installation.
-5. Run `/reload` in every running Pi session that should use the new package, or restart those sessions, after removal, installation, and filter changes.
-
-See the [`@debonzi/db11-skills` package guide](packages/db11-skills/README.md#migrate-from-the-former-dbz-package) for the package-specific procedure.
+1. Run `pi list` to identify the old source. Use `pi config` or `pi config -l` to review intentional filters and overrides before removing it.
+2. Run `pi remove` with the exact old source, such as `npm:@debonzi/dbz-ai-tools` or `git:github.com/debonzi/dbz-ai-tools`. Use `-l` for project-local entries.
+3. Install the replacement if needed. Old filters do not transfer to a new package identity; check what Pi loads with `pi config` or `pi config -l`, then reload or restart Pi.
 
 ## Develop from source
 
-From a clone of this repository, install a workspace by its explicit local path:
+From a clone of this repository, install an active workspace by its explicit local path:
 
 ```sh
-pi install ./packages/db11-skills
 pi install ./packages/pi-codex-usage
 pi install ./packages/pi-copilot-usage
 ```
@@ -127,7 +73,7 @@ See each package README for focused tests. Maintainers should also read the [ind
 
 ## Security
 
-No package has an install or postinstall lifecycle script. Credentials, sessions, histories, caches, trust decisions, and other machine state are excluded from the distributions.
+No active package has an install or postinstall lifecycle script. Credentials, sessions, histories, caches, trust decisions, and other machine state are excluded from the distributions.
 
 ## License
 

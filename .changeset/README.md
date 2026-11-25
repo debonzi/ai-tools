@@ -4,7 +4,6 @@ Changesets are managed from the private repository root, while package versions 
 
 Run `npx changeset` for every user-visible change and select each affected package explicitly:
 
-- `@debonzi/db11-skills`
 - `@debonzi/pi-codex-usage`
 - `@debonzi/pi-copilot-usage`
 

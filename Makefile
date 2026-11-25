@@ -16,15 +16,15 @@ RELEASE_IDENTITY := python3 scripts/release_identity.py
 help:
 	@printf '%s\n' \
 	  'Release targets:' \
-	  '  make release-info PACKAGE=db11-skills VERSION=X.Y.Z       Validate and print the fixed package identity.' \
-	  '  make release-preflight PACKAGE=db11-skills VERSION=X.Y.Z  Verify branch, worktree, manifest, remote main, and tag availability.' \
+	  '  make release-info PACKAGE=pi-codex-usage VERSION=X.Y.Z       Validate and print the fixed package identity.' \
+	  '  make release-preflight PACKAGE=pi-codex-usage VERSION=X.Y.Z  Verify branch, worktree, manifest, remote main, and tag availability.' \
 	  '  make release-prepare                                     Apply pending Changesets and synchronize package-lock.json.' \
 	  '  make release-commit                                      Commit only release metadata created by release-prepare.' \
-	  '  make release-check PACKAGE=db11-skills VERSION=X.Y.Z      Install dependencies and run all validation before tagging.' \
-	  '  make release-tag PACKAGE=db11-skills VERSION=X.Y.Z        Create the selected package-qualified annotated tag.' \
-	  '  make release-push PACKAGE=db11-skills VERSION=X.Y.Z       Atomically push main and only the selected tag.' \
+	  '  make release-check PACKAGE=pi-codex-usage VERSION=X.Y.Z      Install dependencies and run all validation before tagging.' \
+	  '  make release-tag PACKAGE=pi-codex-usage VERSION=X.Y.Z        Create the selected package-qualified annotated tag.' \
+	  '  make release-push PACKAGE=pi-codex-usage VERSION=X.Y.Z       Atomically push main and only the selected tag.' \
 	  '' \
-	  'PACKAGE must be db11-skills, pi-codex-usage, or pi-copilot-usage.' \
+	  'PACKAGE must be pi-codex-usage or pi-copilot-usage.' \
 	  'Local release targets never publish npm packages.' \
 	  'Override REMOTE=origin or BRANCH=main only when repository policy requires it.'
 
@@ -115,8 +115,6 @@ release-commit:
 	  path="$${line:3}"; \
 	  case "$$status:$$path" in \
 	    ' M:package-lock.json'|\
-	    ' M:packages/db11-skills/package.json'|\
-	    ' M:packages/db11-skills/CHANGELOG.md'|\
 	    ' M:packages/pi-codex-usage/package.json'|\
 	    ' M:packages/pi-codex-usage/CHANGELOG.md'|\
 	    ' M:packages/pi-copilot-usage/package.json'|\
@@ -137,7 +135,7 @@ release-commit:
 	  exit 1; \
 	fi; \
 	updated=0; \
-	for workspace in db11-skills pi-codex-usage pi-copilot-usage; do \
+	for workspace in pi-codex-usage pi-copilot-usage; do \
 	  manifest="packages/$$workspace/package.json"; \
 	  changelog="packages/$$workspace/CHANGELOG.md"; \
 	  manifest_changed=0; changelog_changed=0; \
@@ -154,7 +152,6 @@ release-commit:
 	  exit 1; \
 	fi
 	git add package-lock.json \
-	  packages/db11-skills/package.json packages/db11-skills/CHANGELOG.md \
 	  packages/pi-codex-usage/package.json packages/pi-codex-usage/CHANGELOG.md \
 	  packages/pi-copilot-usage/package.json packages/pi-copilot-usage/CHANGELOG.md
 	git add -u -- .changeset

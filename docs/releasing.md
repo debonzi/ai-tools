@@ -1,6 +1,6 @@
 # Releasing the DB11 Pi packages
 
-This document defines the independent release contract for the three publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
+This document defines the independent release contract for the two publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
 
 ## Release identities
 
@@ -8,11 +8,10 @@ Release code must use this fixed allowlist rather than deriving a path or npm id
 
 | `PACKAGE` selector | Workspace | npm package | Annotated tag |
 | --- | --- | --- | --- |
-| `db11-skills` | `packages/db11-skills` | `@debonzi/db11-skills` | `db11-skills-vX.Y.Z` |
 | `pi-codex-usage` | `packages/pi-codex-usage` | `@debonzi/pi-codex-usage` | `pi-codex-usage-vX.Y.Z` |
 | `pi-copilot-usage` | `packages/pi-copilot-usage` | `@debonzi/pi-copilot-usage` | `pi-copilot-usage-vX.Y.Z` |
 
-Legacy `dbz-skills` and `dbz-crew` selectors are historical only and are rejected for new releases; existing legacy tags remain unchanged.
+Retired selectors, including `db11-skills`, `dbz-skills`, and `dbz-crew`, are historical only and are rejected for new releases. Existing tags remain unchanged.
 
 Versions and releases are independent. Equal version numbers do not create a fixed or linked release group, and one release metadata commit may be the target of more than one package-qualified tag.
 
@@ -58,14 +57,14 @@ make release-prepare
 make release-commit
 
 # Select one updated package and its exact manifest version.
-make release-info PACKAGE=db11-skills VERSION=X.Y.Z
-make release-preflight PACKAGE=db11-skills VERSION=X.Y.Z
-make release-check PACKAGE=db11-skills VERSION=X.Y.Z
-make release-tag PACKAGE=db11-skills VERSION=X.Y.Z
-make release-push PACKAGE=db11-skills VERSION=X.Y.Z
+make release-info PACKAGE=pi-codex-usage VERSION=X.Y.Z
+make release-preflight PACKAGE=pi-codex-usage VERSION=X.Y.Z
+make release-check PACKAGE=pi-codex-usage VERSION=X.Y.Z
+make release-tag PACKAGE=pi-codex-usage VERSION=X.Y.Z
+make release-push PACKAGE=pi-codex-usage VERSION=X.Y.Z
 ```
 
-`release-info` is a local, non-mutating identity and manifest check. The package selector is required for every package-specific validation, tag, and push target. `release-tag` creates `db11-skills-vX.Y.Z` in this example, and `release-push` atomically pushes `main` and that tag. Repeat the package-specific steps for another workspace updated by the same Changesets release commit.
+`release-info` is a local, non-mutating identity and manifest check. The package selector is required for every package-specific validation, tag, and push target. `release-tag` creates `pi-codex-usage-vX.Y.Z` in this example, and `release-push` atomically pushes `main` and that tag. Repeat the package-specific steps for another workspace updated by the same Changesets release commit.
 
 `release-prepare` and every package-specific tag or push flow must start from a clean local `main`, verify that it includes current remote `main`, and reject existing local or remote tags where applicable. `release-commit` intentionally runs after preparation has changed release metadata; it rejects pre-staged or unrelated changes and accepts only consumed Changesets, affected workspace `package.json` and `CHANGELOG.md` files, and the root `package-lock.json`.
 
@@ -76,7 +75,6 @@ Do not use local `npm publish` as a fallback. If the selector mapping, archive v
 The release workflow must trigger only for these tag families:
 
 ```text
-db11-skills-v*
 pi-codex-usage-v*
 pi-copilot-usage-v*
 ```
@@ -89,7 +87,6 @@ The publish job alone needs `id-token: write`; repository contents remain read-o
 
 Each npm identity requires its own registry entry and trusted-publisher authorization:
 
-- `@debonzi/db11-skills`
 - `@debonzi/pi-codex-usage`
 - `@debonzi/pi-copilot-usage`
 
