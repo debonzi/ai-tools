@@ -2,208 +2,143 @@
 set -euo pipefail
 
 root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-temporary="$(mktemp -d)"
-trap 'rm -rf "$temporary"' EXIT
+pi_bin="$(command -v "${PI_BIN:-pi}")"
+pi_bin="$(realpath -- "$pi_bin")"
+temporary="$(mktemp -d "$root/.test-run.XXXXXX")"
+trap 'rm -rf -- "$temporary"' EXIT
 
-run_package_test() {
-    local selector="$1"
-    local npm_name="$2"
-    local workspace="$root/packages/$selector"
-    local case_root="$temporary/$selector"
-    local archive_dir="$case_root/archive"
-    local unpacked_dir="$case_root/unpacked"
-    local home="$case_root/home"
-    local agent_dir="$case_root/agent"
-    local work_dir="$case_root/work"
-    local pack_json="$case_root/pack.json"
-    local expected_version archive_name archive package_root
+fixture="$temporary/source"
+mkdir -p "$fixture" "$temporary"/{agent,home,work,bin,tmp}
 
-    expected_version="$(node -p "require('$workspace/package.json').version")"
+# Use the working tree so the same check runs before commit and in CI. Only
+# copy Git-visible resources; ignored local files never enter the fixture.
+test ! -e "$root/package.json"
+git -C "$root" ls-files -z --cached --others --exclude-standard \
+    -- extensions skills prompts themes >"$temporary/paths"
+(
+    cd "$root"
+    while IFS= read -r -d '' path; do
+        if [[ -e "$path" || -L "$path" ]]; then
+            cp -P --parents -- "$path" "$fixture"
+        fi
+    done <"$temporary/paths"
+)
 
-    printf 'test: install and discover %s\n' "$npm_name"
-    mkdir -p "$archive_dir" "$unpacked_dir" "$home" "$agent_dir" "$work_dir"
-    chmod 700 "$home" "$agent_dir"
+export HOME="$temporary/home"
+export XDG_CONFIG_HOME="$temporary/config"
+export XDG_STATE_HOME="$temporary/state"
+export XDG_CACHE_HOME="$temporary/cache"
+export TMPDIR="$temporary/tmp"
+export PI_CODING_AGENT_DIR="$temporary/agent"
+export PI_CODING_AGENT_SESSION_DIR="$temporary/sessions"
+export PI_OFFLINE=1
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+export GIT_ALLOW_PROTOCOL=file
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="url.file://$fixture.insteadOf"
+export GIT_CONFIG_VALUE_0=https://github.com/debonzi/ai-tools
 
-    npm pack --json --ignore-scripts --pack-destination "$archive_dir" "$workspace" >"$pack_json"
-    archive_name="$(python3 - "$pack_json" "$npm_name" <<'PY'
-import json
-from pathlib import Path
-import sys
+git -C "$fixture" init --quiet --initial-branch=main --template=
+git -C "$fixture" add --all
+git -C "$fixture" -c user.name=Test -c user.email=test@example.invalid commit --quiet -m 'Package snapshot'
+ref=package-test
+git -C "$fixture" tag "$ref"
+expected_commit="$(git -C "$fixture" rev-parse HEAD)"
+git -C "$fixture" -c user.name=Test -c user.email=test@example.invalid commit --quiet --allow-empty -m 'Later commit'
 
-payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-name = sys.argv[2]
-candidates = payload if isinstance(payload, list) else list(payload.values())
-matches = [entry for entry in candidates if isinstance(entry, dict) and entry.get("name") == name]
-assert len(matches) == 1, payload
-print(matches[0]["filename"])
-PY
-)"
-    archive="$archive_dir/$archive_name"
-    test -f "$archive"
-    tar -xzf "$archive" -C "$unpacked_dir"
-    package_root="$unpacked_dir/package"
-    test -f "$package_root/package.json"
+# A package manager invocation during installation is a regression. The Pi
+# test executable is already installed; this guard applies to its children.
+printf '#!/bin/sh\necho "Unexpected package manager: $0" >&2\nexit 1\n' >"$temporary/bin/npm"
+chmod +x "$temporary/bin/npm"
+ln -s npm "$temporary/bin/pnpm"
+ln -s npm "$temporary/bin/bun"
+export PATH="$temporary/bin:$PATH"
 
-    (
-        export HOME="$home"
-        export XDG_CONFIG_HOME="$case_root/config"
-        export XDG_STATE_HOME="$case_root/state"
-        export PI_CODING_AGENT_DIR="$agent_dir"
-        export PI_CODING_AGENT_SESSION_DIR="$case_root/sessions"
-        export PI_OFFLINE=1
-        export GIT_TERMINAL_PROMPT=0
-        cd "$work_dir"
-
-        pi install "$package_root" >/dev/null
-        pi list --no-approve >"$case_root/pi-list.txt"
-        grep -Fq "$package_root" "$case_root/pi-list.txt"
-
-        local -a probe_args=()
-        if [[ "$selector" == pi-context-meter ]]; then
-            # RPC lists commands, so expose a probe command only if Pi activated the tool.
-            local probe="$case_root/context-meter-probe.ts"
-            tee "$probe" >/dev/null <<'TS'
+mkdir -p "$PI_CODING_AGENT_DIR/extensions"
+probe="$PI_CODING_AGENT_DIR/extensions/context-meter-probe.ts"
+tee "$probe" >/dev/null <<'TS'
+import { writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", () => {
-    if (pi.getActiveTools().includes("pi-context-meter")) {
-      pi.registerCommand("context-meter-probe", {
-        description: "Confirm that Pi Context Meter is active.",
-        handler: async () => {},
-      });
-    }
+    const tools = pi.getAllTools()
+      .filter((tool) => tool.sourceInfo?.origin === "package")
+      .map(({ name, sourceInfo }) => ({ name, sourceInfo }));
+    writeFileSync(process.env.AI_TOOLS_TEST_REPORT!, JSON.stringify(tools));
   });
 }
 TS
-            probe_args=(--extension "$probe")
-        fi
 
-        printf '%s\n' '{"type":"get_commands"}' | \
-            pi --mode rpc --no-session --no-context-files --no-approve --offline "${probe_args[@]}" \
-            >"$case_root/rpc.jsonl"
-    )
+cd "$temporary/work"
+source="git:github.com/debonzi/ai-tools@$ref"
+"$pi_bin" install "$source"
+"$pi_bin" list --no-approve >"$temporary/pi-list.txt"
+grep -Fq "$source" "$temporary/pi-list.txt"
+installed="$PI_CODING_AGENT_DIR/git/github.com/debonzi/ai-tools"
+test "$(git -C "$installed" rev-parse HEAD)" = "$expected_commit"
+test ! -e "$installed/package.json"
+test ! -e "$installed/node_modules"
+test ! -e "$PI_CODING_AGENT_DIR/trust.json"
 
-    python3 - \
-        "$selector" \
-        "$npm_name" \
-        "$expected_version" \
-        "$package_root" \
-        "$agent_dir/settings.json" \
-        "$agent_dir/trust.json" \
-        "$case_root/rpc.jsonl" \
-        "$home" \
-        "$case_root/pi-list.txt" \
-        "$case_root/config" \
-        "$case_root/state" <<'PY'
+probe_commands() {
+    # Do not pass provider credentials or user-specific Pi overrides to the fixture.
+    printf '%s\n' '{"type":"get_commands"}' | \
+        env -i PATH="$PATH" HOME="$HOME" TMPDIR="$TMPDIR" \
+        XDG_CONFIG_HOME="$XDG_CONFIG_HOME" XDG_STATE_HOME="$XDG_STATE_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+        PI_CODING_AGENT_DIR="$PI_CODING_AGENT_DIR" PI_CODING_AGENT_SESSION_DIR="$PI_CODING_AGENT_SESSION_DIR" \
+        PI_OFFLINE=1 GIT_ALLOW_PROTOCOL=file AI_TOOLS_TEST_REPORT="$temporary/$1-tools.json" \
+        "$pi_bin" --mode rpc --no-session --no-context-files --no-approve --offline >"$temporary/$1.jsonl"
+}
+
+probe_commands all
+python3 - "$PI_CODING_AGENT_DIR/settings.json" "$source" <<'PY'
 import json
 from pathlib import Path
 import sys
 
-selector, expected_name, expected_version = sys.argv[1:4]
-package_root = Path(sys.argv[4]).resolve()
-settings_path = Path(sys.argv[5])
-trust_path = Path(sys.argv[6])
-rpc_path = Path(sys.argv[7])
-home = Path(sys.argv[8])
-pi_list_path = Path(sys.argv[9])
-xdg_config_home = Path(sys.argv[10])
-xdg_state_home = Path(sys.argv[11])
-
-manifest = json.loads((package_root / "package.json").read_text(encoding="utf-8"))
-assert manifest["name"] == expected_name
-assert manifest["version"] == expected_version
-
-settings = json.loads(settings_path.read_text(encoding="utf-8"))
-assert list(settings) == ["packages"], settings
-assert len(settings["packages"]) == 1, settings
-source = settings["packages"][0]
-assert isinstance(source, str), "Pi package filters must not be created"
-installed = Path(source).expanduser()
-if not installed.is_absolute():
-    installed = settings_path.parent / installed
-assert installed.resolve() == package_root
-assert not trust_path.exists(), "package installation must not create a trust decision"
-
-pi_list = pi_list_path.read_text(encoding="utf-8")
-assert str(package_root) in pi_list, pi_list
-assert "db11-skills" not in pi_list.lower(), pi_list
-assert "db11-crew" not in pi_list.lower(), pi_list
-assert "dbz-crew" not in pi_list.lower(), pi_list
-
-records = [json.loads(line) for line in rpc_path.read_text(encoding="utf-8").splitlines() if line]
-assert not [record for record in records if record.get("type") == "extension_error"], records
-responses = [
-    record
-    for record in records
-    if record.get("type") == "response" and record.get("command") == "get_commands"
-]
-assert len(responses) == 1 and responses[0].get("success") is True, records
-commands = responses[0]["data"]["commands"]
-owned = {
-    command["name"]: command
-    for command in commands
-    if command.get("sourceInfo", {}).get("origin") == "package"
-    and Path(command["sourceInfo"].get("baseDir", "")).resolve() == package_root
-}
-
-if selector == "pi-codex-usage":
-    assert manifest["pi"] == {
-        "extensions": ["./agents/pi/extensions/codex-usage/index.ts"],
-    }
-    assert set(owned) == {"usage-codex"}, owned
-    assert owned["usage-codex"]["source"] == "extension"
-elif selector == "pi-context-meter":
-    assert manifest["pi"] == {
-        "extensions": ["./agents/pi/extensions/pi-context-meter/index.ts"],
-    }
-    assert not owned, owned
-    assert any(
-        command["name"] == "context-meter-probe" and command["source"] == "extension"
-        for command in commands
-    ), commands
-elif selector == "pi-copilot-usage":
-    assert manifest["pi"] == {
-        "extensions": ["./agents/pi/extensions/copilot-usage/index.ts"],
-    }
-    assert set(owned) == {"usage-copilot"}, owned
-    assert owned["usage-copilot"]["source"] == "extension"
-else:
-    raise AssertionError(selector)
-
-command_names = {command["name"] for command in commands}
-prohibited_commands = {
-    "skill:db11-issues",
-    "skill:db11-journey",
-    "skill:db11-plan",
-    "skill:db11-shipit",
-    "skill:db11-spec",
-    "skill:dbz-crew",
-    "skill:dbz-crew-setup",
-    "skill:dbz-ai-tools-setup",
-    "skill:dbz-issues",
-    "skill:dbz-spec",
-}
-prohibited_commands |= {"skill:db11-crew", "skill:db11-crew-setup"}
-assert prohibited_commands.isdisjoint(command_names), command_names
-assert "cusage" not in command_names
+path = Path(sys.argv[1])
+source = sys.argv[2]
+settings = json.loads(path.read_text(encoding="utf-8"))
+assert settings == {"packages": [source]}, settings
+settings["packages"] = [{
+    "source": source,
+    "extensions": ["extensions/context-meter/index.ts"],
+}]
+path.write_text(json.dumps(settings), encoding="utf-8")
 PY
+probe_commands filtered
+
+python3 - "$temporary" "$installed" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+results = Path(sys.argv[1])
+installed = Path(sys.argv[2]).resolve()
+expected = {
+    "usage-codex": "extensions/codex-usage/index.ts",
+    "usage-copilot": "extensions/copilot-usage/index.ts",
 }
 
-requested="${1:-all}"
-case "$requested" in
-    all)
-        run_package_test pi-codex-usage @debonzi/pi-codex-usage
-        run_package_test pi-context-meter @debonzi/pi-context-meter
-        run_package_test pi-copilot-usage @debonzi/pi-copilot-usage
-        ;;
-    pi-codex-usage|pi-context-meter|pi-copilot-usage)
-        run_package_test "$requested" "@debonzi/$requested"
-        ;;
-    *)
-        printf 'Unknown package selector: %s\n' "$requested" >&2
-        exit 2
-        ;;
-esac
+for case in ("all", "filtered"):
+    records = [json.loads(line) for line in (results / f"{case}.jsonl").read_text().splitlines() if line]
+    assert not any(record.get("type") == "extension_error" for record in records), records
+    responses = [r for r in records if r.get("type") == "response" and r.get("command") == "get_commands"]
+    assert len(responses) == 1 and responses[0].get("success") is True, records
+    commands = responses[0]["data"]["commands"]
+    tools = json.loads((results / f"{case}-tools.json").read_text())
+    assert [tool["name"] for tool in tools] == ["pi-context-meter"], tools
+    assert Path(tools[0]["sourceInfo"]["path"]).resolve() == installed / "extensions/context-meter/index.ts"
+    owned = [c for c in commands if c.get("sourceInfo", {}).get("origin") == "package"]
+    if case == "filtered":
+        assert not owned, owned
+    else:
+        assert sorted(command["name"] for command in owned) == sorted(expected), owned
+        for command in owned:
+            assert command["source"] == "extension", command
+            assert Path(command["sourceInfo"]["baseDir"]).resolve() == installed, command
+            assert Path(command["sourceInfo"]["path"]).resolve() == installed / expected[command["name"]], command
+PY
 
-printf '%s\n' 'Selected isolated Pi package installation tests passed.'
+echo 'Isolated Git installation and resource filtering passed.'

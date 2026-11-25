@@ -1,9 +1,9 @@
 # Repository Instructions
 
 - Write all documentation, user-facing text, and normative comments in English.
-- Keep portable skills under `skills/` and agent-specific resources under `agents/<agent>/`.
-- Unless explicitly scoped to an existing publishable package, place new Pi extensions under `agents/pi/extensions/<name>/` for repository-local development and incubation.
-- Move an extension to `packages/<package>/agents/pi/extensions/<name>/` only after an explicit decision to distribute it as part of that package. Stability alone does not imply promotion.
+- The repository root is the Git-distributed Pi package. Keep distributed extensions under `extensions/<name>/index.ts` and tests under `tests/`.
+- Keep experiments outside Pi discovery directories. Adding a resource under `extensions/`, `skills/`, `prompts/`, or `themes/` opts it into the distributed package.
+- Do not add a root `package.json` or assume an npm install step for users. Use only runtime dependencies supplied by Pi or Node, or explicitly revisit the Git-only installation contract.
 - Never commit credentials, tokens, sessions, histories, caches, trust decisions, or machine-generated state.
 - Keep agent-specific integrations cohesive; do not claim cross-agent compatibility without verification.
 - Treat `GLOSSARY.md` as the canonical source for project terminology. Read it before planning or modifying repository components, and update it when introducing or changing project-specific terms.

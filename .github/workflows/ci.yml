@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run check
-      - run: npm run pack:check
+      - name: Install the Pi test host
+        run: npm install --prefix "$RUNNER_TEMP/pi-host" --no-audit --no-fund @earendil-works/pi-coding-agent@1.6.0
+      - name: Run behavior and Git installation checks
+        run: make check PI_NODE_MODULES="$RUNNER_TEMP/pi-host/node_modules" PI_BIN="$RUNNER_TEMP/pi-host/node_modules/.bin/pi"

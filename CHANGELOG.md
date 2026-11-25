@@ -1,9 +1,17 @@
-# Historical changelog for `@debonzi/dbz-ai-tools`
+# Changelog
 
-This file preserves the release history of the former aggregate package. See the independent changelogs for [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/CHANGELOG.md), [`@debonzi/pi-context-meter`](packages/pi-context-meter/CHANGELOG.md), [`@debonzi/pi-copilot-usage`](packages/pi-copilot-usage/CHANGELOG.md), and the archived [`@debonzi/db11-skills`](deprecated/db11-skills/CHANGELOG.md), or see the [migration guide](README.md#migrate-from-the-former-aggregate-package).
+## 0.2.0 - 2026-11-25
 
-## 0.1.0
+- Distribute AI Tools as one Git-installed Pi package, without a registry publish, build, or dependency install for users.
+- Expose Codex Usage, Context Meter, and Copilot Usage through Pi's `extensions/` discovery. Select which extensions load with `pi config`.
+- Retire the independent npm workspace release process and remove previously archived resources. See the [migration guide](README.md#migrate-from-older-installations) for existing installations.
 
-### Minor Changes
+## Previous layout (independent npm workspaces)
+
+- Codex Usage introduced an independent workspace at `0.1.0` and renamed `/cusage` to `/usage-codex`.
+- Context Meter introduced an independent workspace at `0.1.0` with the `pi-context-meter` tool.
+- Copilot Usage introduced an independent workspace at `0.1.0` with `/usage-copilot` and the `copilot-usage` widget for the active Pi OAuth account.
+
+## 0.1.0 (historical `@debonzi/dbz-ai-tools` aggregate)
 
 - Published the initial DBZ AI Tools aggregate package for the Pi package gallery.

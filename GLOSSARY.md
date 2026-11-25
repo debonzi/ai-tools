@@ -2,7 +2,13 @@
 
 This glossary is the canonical source for project terminology. Use its terms consistently when discussing relationships within or between repository components and when writing plans, documentation, user-facing text, code comments, or new identifiers. Established identifiers may retain legacy terminology when changing them would break compatibility.
 
-The Initiative Model, DB11 Plan, DB11 ShipIt, and Journey terms below describe the [archived DB11 skills](deprecated/db11-skills/). They remain here to help interpret existing Wyrd records and historical documentation.
+The Initiative Model, DB11 Plan, DB11 ShipIt, and Journey terms below are historical. They remain here to help interpret existing Wyrd records.
+
+## Pi distribution
+
+### AI Tools Pi package
+
+The Git-distributed repository root. It is the unit of installation, update, and release. Individual extensions are separately selectable Pi resources, not independently released packages.
 
 ## Initiative Model
 

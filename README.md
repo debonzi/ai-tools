@@ -1,83 +1,78 @@
-# DB11 AI Tools package catalog
+# AI Tools for Pi
 
-This repository is the private workspace coordinator and source catalog for independently installable [Pi](https://github.com/earendil-works/pi-mono) packages. The repository root is not a Pi package and is never published.
+One Git-distributed [Pi](https://pi.dev) package with three extensions. Git and a working Pi installation are required; this package does not need a build, npm publication, or a separate dependency install. It is tested with Pi 1.6.0.
 
-## Packages
-
-| Package | Included resources | Intended use |
-| --- | --- | --- |
-| [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/README.md) | Codex Usage Pi extension | OpenAI Codex quota display and on-demand usage reports |
-| [`@debonzi/pi-context-meter`](packages/pi-context-meter/README.md) | Pi Context Meter extension | On-demand reports of context-window usage and remaining capacity |
-| [`@debonzi/pi-copilot-usage`](packages/pi-copilot-usage/README.md) | GitHub Copilot Usage Pi extension | GitHub Copilot allowance display and on-demand usage reports |
-
-Package versions and releases are independent. There is no aggregate package that installs them together.
-
-## Install from npm
-
-This repository defines the npm package identities and release configuration, but it does not establish current registry publication. When a selected package is available on npm, review its source before installation: Pi extensions execute code.
-
-Install only the packages you want:
-
-```sh
-pi install npm:@debonzi/pi-codex-usage
-pi install npm:@debonzi/pi-context-meter
-pi install npm:@debonzi/pi-copilot-usage
-```
-
-`pi install` installs a complete package and enables its declared resources by default. It writes to global settings unless `-l` is supplied for a project-local installation. Use `pi config` to control globally loaded resources, or `pi config -l` to start in project overrides with inherited global resources shown dimmed.
-
-If Pi is already running after an install or configuration change, run `/reload` or restart Pi. Unpinned packages can be updated with `pi update --extensions`.
-
-## Deprecated resources
-
-| Archived resource | Status |
+| Extension | What it adds |
 | --- | --- |
-| [`@debonzi/db11-skills`](deprecated/db11-skills/README.md) | `db11-plan`, `db11-shipit`, and `db11-journey` are deprecated. The package is no longer an active workspace or release target. |
-| [`context-footer`](deprecated/context-footer.ts) | The local Pi extension has been removed from `agents/pi/extensions/`. |
-| [`db11-squad`](deprecated/db11-squad/ANOTATIONS.md) | The proposal is retired. Only architectural notes were present; there was no runnable extension to remove. |
+| [Codex Usage](extensions/codex-usage/) | `/usage-codex` and a quota widget for an authenticated OpenAI Codex account |
+| [Context Meter](extensions/context-meter/) | The `pi-context-meter` tool for inspecting context-window usage |
+| [Copilot Usage](extensions/copilot-usage/) | `/usage-copilot` and a quota widget for an authenticated GitHub Copilot account |
 
-The archives are kept for reference. This change does not modify existing Pi installations, Wyrd records, or npm registry metadata. `db11-issues` and `db11-spec` had already been retired and are not distributed by any active package.
+## Install
 
-### Remove a retired standalone skills package
-
-Run `pi list` to identify any installed `@debonzi/db11-skills` or `@debonzi/dbz-skills` source. There is no replacement skills package in this repository. Pass the exact source shown (including any version pin, Git ref, or resolved local path) to `pi remove`. Use `-l` for project-local entries; if a source is installed in both scopes, remove each entry separately. Reload or restart Pi afterward.
-
-If you loaded `context-footer` by an explicit path, remove that path from your Pi configuration or launch command.
-
-## Migrate from the former aggregate package
-
-There is no automatic migration from `@debonzi/dbz-ai-tools` and no aggregate `@debonzi/db11-ai-tools` package. Of the former resources, only `codex-usage` has a replacement: `@debonzi/pi-codex-usage`. The former issues, spec, and crew resources have no replacement in this repository.
-
-1. Run `pi list` to identify the old source. Use `pi config` or `pi config -l` to review intentional filters and overrides before removing it.
-2. Run `pi remove` with the exact old source, such as `npm:@debonzi/dbz-ai-tools` or `git:github.com/debonzi/dbz-ai-tools`. Use `-l` for project-local entries.
-3. Install the replacement if needed. Old filters do not transfer to a new package identity; check what Pi loads with `pi config` or `pi config -l`, then reload or restart Pi.
-
-## Develop from source
-
-From a clone of this repository, install an active workspace by its explicit local path:
+### From GitHub (managed by Pi)
 
 ```sh
-pi install ./packages/pi-codex-usage
-pi install ./packages/pi-context-meter
-pi install ./packages/pi-copilot-usage
+pi install git:github.com/debonzi/ai-tools
 ```
 
-Local paths reference the source workspaces directly. The private repository root is not installable, and Pi has no documented Git-subdirectory package selector; a Git installation of the repository root does not select one of these packages.
+For GitHub access over SSH instead, use `pi install git:git@github.com:debonzi/ai-tools.git`. For a reproducible install, append `@<tag-or-commit>` to the source; choose a ref that contains this layout. The historical `v0.1.0` tag is not a release of this layout.
 
-Install locked development dependencies and run the supported repository checks:
+`pi update git:github.com/debonzi/ai-tools` updates an unpinned installation from its branch; a tag or commit pin stays on that ref.
+
+### From a local clone
+
+Run these commands from the directory where you want to keep the checkout:
 
 ```sh
-npm ci
-npm run check
-npm run pack:check
+git clone https://github.com/debonzi/ai-tools.git
+cd ai-tools
+pi install "$(pwd)"
 ```
 
-See each package README for focused tests. Maintainers should also read the [independent release contract](docs/releasing.md), the [Changesets guidance](.changeset/README.md), and the [historical aggregate-package changelog](CHANGELOG.md).
+For SSH, use `git clone git@github.com:debonzi/ai-tools.git` instead. If you already have a clone, just run the last command from its root. To use a specific version, run `git checkout --detach <tag-or-commit>` in the clone before installing.
 
-## Security
+Pi loads the extensions directly from this directory. Keep the checkout in place and update it with Git, not `pi update`. If you already installed the GitHub source through Pi, remove that entry first to avoid loading the extensions twice.
 
-No active package has an install or postinstall lifecycle script. Credentials, sessions, histories, caches, trust decisions, and other machine state are excluded from the distributions.
+### Scope and removal
+
+Installation is personal by default. Add `-l` for project settings, which Pi reads after the project is trusted. Run `/reload` or restart Pi after changing the installation.
+
+Use `pi list` to inspect installed sources. To uninstall, use `pi remove <source>` with the source from `pi list` and the same scope (`-l` for a project install).
+
+## Choose which extensions load
+
+Pi loads all three by default. Use `pi config` to enable or disable individual extensions after installing. For a reusable selection, use the object form of the `packages` entry in Pi settings. For example, to load just Context Meter:
+
+```json
+{
+  "source": "git:github.com/debonzi/ai-tools",
+  "extensions": ["extensions/context-meter/index.ts"]
+}
+```
+
+The selection affects loading, not the Git checkout; all three extensions are downloaded and updated together.
+
+## Migrate from older installations
+
+1. Run `pi list` and `pi config` to identify old sources and filters. Check project settings as well if you used `-l`.
+2. Remove old entries for the former aggregate package (`npm:@debonzi/dbz-ai-tools`), the individual `npm:@debonzi/pi-*` packages from this repository, and any local sources pointing at the old `packages/` layout or a local checkout registered with obsolete filters. Remove old direct extension paths and filters that reference moved or removed files. Use the exact installed source and scope when running `pi remove`.
+3. Install the Git package and reapply your extension selection using `pi config`. Do not load an old copy or a separate development checkout alongside it. Provider and usage-widget settings stored outside the clone keep their existing paths.
+
+## Develop and test
+
+Use the [local clone installation](#from-a-local-clone) for development. To try a single extension for one session, run `pi -e ./extensions/codex-usage/index.ts` from the repository root without another copy of that extension already enabled.
+
+Validation requires Git, Bash, GNU coreutils, Python 3, Node 24, and an installed Pi host. Set `PI_NODE_MODULES` to the directory containing the host's `@earendil-works/pi-coding-agent` package and its dependencies. For a global npm installation of Pi:
+
+```sh
+make check PI_NODE_MODULES="$(npm root --global)"
+```
+
+For Pi installed by the Pi installer, point `PI_NODE_MODULES` to the `node_modules` directory under the selected `~/.pi/agent/install/releases/<version>/`. If needed, set `PI_BIN` to the corresponding Pi executable. `make test-install` uses only the Pi executable and verifies the Git install and filtering with a local Git fixture and an isolated Pi profile. It does not contact GitHub or require provider credentials.
+
+See the [changelog](CHANGELOG.md) and the [Git release procedure](docs/releasing.md).
 
 ## License
 
-MIT
+[MIT](LICENSE). See the [Copilot extension notices](extensions/copilot-usage/NOTICES.md) for third-party attribution.

@@ -1,195 +1,26 @@
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-REMOTE ?= origin
-BRANCH ?= main
-PACKAGE ?=
-VERSION ?=
-RELEASE_IDENTITY := python3 scripts/release_identity.py
+PI_NODE_MODULES ?=
+PI_BIN ?= pi
 
-.DEFAULT_GOAL := help
-.NOTPARALLEL:
+.PHONY: check test-behavior test-install
 
-.PHONY: help release-info release-preflight release-prepare release-commit release-check release-tag release-push \
-	_require-main _require-clean _require-remote-main _require-new-tag _require-current-tag
+check: test-behavior test-install
 
-help:
-	@printf '%s\n' \
-	  'Release targets:' \
-	  '  make release-info PACKAGE=pi-codex-usage VERSION=X.Y.Z       Validate and print the fixed package identity.' \
-	  '  make release-preflight PACKAGE=pi-codex-usage VERSION=X.Y.Z  Verify branch, worktree, manifest, remote main, and tag availability.' \
-	  '  make release-prepare                                     Apply pending Changesets and synchronize package-lock.json.' \
-	  '  make release-commit                                      Commit only release metadata created by release-prepare.' \
-	  '  make release-check PACKAGE=pi-codex-usage VERSION=X.Y.Z      Install dependencies and run all validation before tagging.' \
-	  '  make release-tag PACKAGE=pi-codex-usage VERSION=X.Y.Z        Create the selected package-qualified annotated tag.' \
-	  '  make release-push PACKAGE=pi-codex-usage VERSION=X.Y.Z       Atomically push main and only the selected tag.' \
-	  '' \
-	  'PACKAGE must be pi-codex-usage, pi-context-meter, or pi-copilot-usage.' \
-	  'Local release targets never publish npm packages.' \
-	  'Override REMOTE=origin or BRANCH=main only when repository policy requires it.'
-
-release-info:
-	@$(RELEASE_IDENTITY) --package "$(PACKAGE)" --version "$(VERSION)" --verify-manifest
-
-_require-main:
-	@if [[ "$$(git branch --show-current)" != "$(BRANCH)" ]]; then \
-	  echo "Release targets must run from $(BRANCH)." >&2; \
+# Reuse the host Pi's dependencies without installing anything into this repository.
+test-behavior:
+	@if [[ -z "$(PI_NODE_MODULES)" || ! -d "$(PI_NODE_MODULES)/@earendil-works/pi-coding-agent" ]]; then \
+	  echo 'Set PI_NODE_MODULES to the node_modules directory containing the test version of Pi.' >&2; \
 	  exit 1; \
 	fi
+	@host="$$(cd -- "$(PI_NODE_MODULES)" && pwd -P)"; \
+	  temporary="$$(mktemp -d .test-run.XXXXXX)"; \
+	  trap 'rm -rf -- "$$temporary"' EXIT; \
+	  cp -R -- extensions tests "$$temporary/"; \
+	  ln -s -- "$$host" "$$temporary/node_modules"; \
+	  TZ=UTC node --test "$$temporary"/tests/*.test.ts
 
-_require-clean:
-	@if [[ -n "$$(git status --porcelain --untracked-files=all)" ]]; then \
-	  echo 'Release targets require a clean worktree.' >&2; \
-	  exit 1; \
-	fi
-
-_require-remote-main:
-	@git fetch --quiet "$(REMOTE)" "$(BRANCH)"
-	@if ! git show-ref --verify --quiet "refs/remotes/$(REMOTE)/$(BRANCH)"; then \
-	  echo "Remote branch $(REMOTE)/$(BRANCH) is unavailable." >&2; \
-	  exit 1; \
-	fi
-	@if ! git merge-base --is-ancestor "$(REMOTE)/$(BRANCH)" HEAD; then \
-	  echo "Local $(BRANCH) does not include the latest $(REMOTE)/$(BRANCH)." >&2; \
-	  exit 1; \
-	fi
-
-_require-new-tag:
-	@identity="$$($(RELEASE_IDENTITY) --package "$(PACKAGE)" --version "$(VERSION)" --format shell --verify-manifest)"; \
-	eval "$$identity"; \
-	if git rev-parse -q --verify "refs/tags/$$TAG" >/dev/null; then \
-	  echo "Local tag $$TAG already exists." >&2; \
-	  exit 1; \
-	fi; \
-	remote_tag="$$(git ls-remote --tags "$(REMOTE)" "refs/tags/$$TAG")"; \
-	if [[ -n "$$remote_tag" ]]; then \
-	  echo "Remote tag $$TAG already exists." >&2; \
-	  exit 1; \
-	fi
-
-_require-current-tag:
-	@identity="$$($(RELEASE_IDENTITY) --package "$(PACKAGE)" --version "$(VERSION)" --format shell --verify-manifest)"; \
-	eval "$$identity"; \
-	if [[ "$$(git cat-file -t "refs/tags/$$TAG" 2>/dev/null || true)" != 'tag' ]]; then \
-	  echo "$$TAG must be an annotated local tag." >&2; \
-	  exit 1; \
-	fi; \
-	if [[ "$$(git rev-parse "$$TAG^{}")" != "$$(git rev-parse HEAD)" ]]; then \
-	  echo "$$TAG must point to the current $(BRANCH) commit." >&2; \
-	  exit 1; \
-	fi
-
-release-preflight:
-	@$(MAKE) --no-print-directory release-info PACKAGE="$(PACKAGE)" VERSION="$(VERSION)"
-	@$(MAKE) --no-print-directory _require-main BRANCH="$(BRANCH)"
-	@$(MAKE) --no-print-directory _require-clean
-	@$(MAKE) --no-print-directory _require-remote-main REMOTE="$(REMOTE)" BRANCH="$(BRANCH)"
-	@$(MAKE) --no-print-directory _require-new-tag PACKAGE="$(PACKAGE)" VERSION="$(VERSION)" REMOTE="$(REMOTE)"
-
-release-prepare:
-	@$(MAKE) --no-print-directory _require-main BRANCH="$(BRANCH)"
-	@$(MAKE) --no-print-directory _require-clean
-	@$(MAKE) --no-print-directory _require-remote-main REMOTE="$(REMOTE)" BRANCH="$(BRANCH)"
-	@if [[ -z "$$(find .changeset -maxdepth 1 -type f -name '*.md' ! -name README.md -print -quit)" ]]; then \
-	  echo 'release-prepare requires at least one pending Changeset.' >&2; \
-	  exit 1; \
-	fi
-	npx changeset version
-	npm install --package-lock-only --ignore-scripts
-
-release-commit:
-	@$(MAKE) --no-print-directory _require-main BRANCH="$(BRANCH)"
-	@$(MAKE) --no-print-directory _require-remote-main REMOTE="$(REMOTE)" BRANCH="$(BRANCH)"
-	@if [[ -n "$$(git diff --cached --name-only)" ]]; then \
-	  echo 'release-commit expects no pre-staged changes.' >&2; \
-	  exit 1; \
-	fi
-	@status_output="$$(git status --porcelain=v1 --untracked-files=all)"; \
-	if [[ -z "$$status_output" ]]; then \
-	  echo 'release-commit found no release metadata to commit.' >&2; \
-	  exit 1; \
-	fi; \
-	unexpected=''; \
-	while IFS= read -r line; do \
-	  status="$${line:0:2}"; \
-	  path="$${line:3}"; \
-	  case "$$status:$$path" in \
-	    ' M:package-lock.json'|\
-	    ' M:packages/pi-codex-usage/package.json'|\
-	    ' M:packages/pi-codex-usage/CHANGELOG.md'|\
-	    ' M:packages/pi-context-meter/package.json'|\
-	    ' M:packages/pi-context-meter/CHANGELOG.md'|\
-	    ' M:packages/pi-copilot-usage/package.json'|\
-	    ' M:packages/pi-copilot-usage/CHANGELOG.md') ;; \
-	    ' D:.changeset/'*.md) \
-	      [[ "$$path" != '.changeset/README.md' ]] || unexpected+="$$line"$$'\n' ;; \
-	    *) unexpected+="$$line"$$'\n' ;; \
-	  esac; \
-	done <<< "$$status_output"; \
-	if [[ -n "$$unexpected" ]]; then \
-	  echo 'release-commit found changes outside generated release metadata:' >&2; \
-	  printf '%s' "$$unexpected" >&2; \
-	  exit 1; \
-	fi; \
-	changed="$$(git diff --name-only)"; \
-	if ! grep -qE '^\.changeset/[^/]+\.md$$' <<< "$$changed"; then \
-	  echo 'release-commit found no consumed Changeset.' >&2; \
-	  exit 1; \
-	fi; \
-	updated=0; \
-	for workspace in pi-codex-usage pi-context-meter pi-copilot-usage; do \
-	  manifest="packages/$$workspace/package.json"; \
-	  changelog="packages/$$workspace/CHANGELOG.md"; \
-	  manifest_changed=0; changelog_changed=0; \
-	  grep -Fxq "$$manifest" <<< "$$changed" && manifest_changed=1 || true; \
-	  grep -Fxq "$$changelog" <<< "$$changed" && changelog_changed=1 || true; \
-	  if [[ $$manifest_changed -ne $$changelog_changed ]]; then \
-	    echo "release-commit requires $$manifest and $$changelog to change together." >&2; \
-	    exit 1; \
-	  fi; \
-	  updated=$$((updated + manifest_changed)); \
-	done; \
-	if [[ $$updated -eq 0 ]]; then \
-	  echo 'release-commit found no versioned workspace.' >&2; \
-	  exit 1; \
-	fi
-	git add package-lock.json \
-	  packages/pi-codex-usage/package.json packages/pi-codex-usage/CHANGELOG.md \
-	  packages/pi-context-meter/package.json packages/pi-context-meter/CHANGELOG.md \
-	  packages/pi-copilot-usage/package.json packages/pi-copilot-usage/CHANGELOG.md
-	git add -u -- .changeset
-	git diff --cached --check
-	git commit -m "chore: version packages"
-
-release-check:
-	@$(MAKE) --no-print-directory release-preflight PACKAGE="$(PACKAGE)" VERSION="$(VERSION)" REMOTE="$(REMOTE)" BRANCH="$(BRANCH)"
-	@if [[ -n "$$(find .changeset -maxdepth 1 -type f -name '*.md' ! -name README.md -print -quit)" ]]; then \
-	  echo 'Release commit still has pending Changesets.' >&2; \
-	  exit 1; \
-	fi
-	npm ci
-	npm run check
-	npm run pack:check
-	@$(MAKE) --no-print-directory _require-clean
-	@$(MAKE) --no-print-directory release-info PACKAGE="$(PACKAGE)" VERSION="$(VERSION)"
-
-release-tag:
-	@$(MAKE) --no-print-directory release-check PACKAGE="$(PACKAGE)" VERSION="$(VERSION)" REMOTE="$(REMOTE)" BRANCH="$(BRANCH)"
-	@identity="$$($(RELEASE_IDENTITY) --package "$(PACKAGE)" --version "$(VERSION)" --format shell --verify-manifest)"; \
-	eval "$$identity"; \
-	git tag -a "$$TAG" -m "Release $$NPM_PACKAGE $$VERSION" HEAD
-
-release-push:
-	@$(MAKE) --no-print-directory release-info PACKAGE="$(PACKAGE)" VERSION="$(VERSION)"
-	@$(MAKE) --no-print-directory _require-main BRANCH="$(BRANCH)"
-	@$(MAKE) --no-print-directory _require-clean
-	@$(MAKE) --no-print-directory _require-remote-main REMOTE="$(REMOTE)" BRANCH="$(BRANCH)"
-	@$(MAKE) --no-print-directory _require-current-tag PACKAGE="$(PACKAGE)" VERSION="$(VERSION)"
-	@identity="$$($(RELEASE_IDENTITY) --package "$(PACKAGE)" --version "$(VERSION)" --format shell --verify-manifest)"; \
-	eval "$$identity"; \
-	remote_tag="$$(git ls-remote --tags "$(REMOTE)" "refs/tags/$$TAG")"; \
-	if [[ -n "$$remote_tag" ]]; then \
-	  echo "Remote tag $$TAG already exists." >&2; \
-	  exit 1; \
-	fi; \
-	git push --atomic "$(REMOTE)" "$(BRANCH)" "$$TAG"
+test-install:
+	bash -n tests/test-package-install.sh
+	PI_BIN="$(PI_BIN)" bash tests/test-package-install.sh

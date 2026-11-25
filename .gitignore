@@ -22,6 +22,7 @@
 # Runtime and editor artifacts
 .cache/
 node_modules/
+/.test-run.*/
 .pi/git/
 .pi/npm/
 __pycache__/
