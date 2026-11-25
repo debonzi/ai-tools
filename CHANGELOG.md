@@ -1,6 +1,6 @@
 # Historical changelog for `@debonzi/dbz-ai-tools`
 
-This file preserves the release history of the former aggregate package. See the independent changelogs for [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/CHANGELOG.md), [`@debonzi/pi-copilot-usage`](packages/pi-copilot-usage/CHANGELOG.md), and the archived [`@debonzi/db11-skills`](deprecated/db11-skills/CHANGELOG.md), or see the [migration guide](README.md#migrate-from-the-former-aggregate-package).
+This file preserves the release history of the former aggregate package. See the independent changelogs for [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/CHANGELOG.md), [`@debonzi/pi-context-meter`](packages/pi-context-meter/CHANGELOG.md), [`@debonzi/pi-copilot-usage`](packages/pi-copilot-usage/CHANGELOG.md), and the archived [`@debonzi/db11-skills`](deprecated/db11-skills/CHANGELOG.md), or see the [migration guide](README.md#migrate-from-the-former-aggregate-package).
 
 ## 0.1.0
 

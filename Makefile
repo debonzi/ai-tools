@@ -24,7 +24,7 @@ help:
 	  '  make release-tag PACKAGE=pi-codex-usage VERSION=X.Y.Z        Create the selected package-qualified annotated tag.' \
 	  '  make release-push PACKAGE=pi-codex-usage VERSION=X.Y.Z       Atomically push main and only the selected tag.' \
 	  '' \
-	  'PACKAGE must be pi-codex-usage or pi-copilot-usage.' \
+	  'PACKAGE must be pi-codex-usage, pi-context-meter, or pi-copilot-usage.' \
 	  'Local release targets never publish npm packages.' \
 	  'Override REMOTE=origin or BRANCH=main only when repository policy requires it.'
 
@@ -117,6 +117,8 @@ release-commit:
 	    ' M:package-lock.json'|\
 	    ' M:packages/pi-codex-usage/package.json'|\
 	    ' M:packages/pi-codex-usage/CHANGELOG.md'|\
+	    ' M:packages/pi-context-meter/package.json'|\
+	    ' M:packages/pi-context-meter/CHANGELOG.md'|\
 	    ' M:packages/pi-copilot-usage/package.json'|\
 	    ' M:packages/pi-copilot-usage/CHANGELOG.md') ;; \
 	    ' D:.changeset/'*.md) \
@@ -135,7 +137,7 @@ release-commit:
 	  exit 1; \
 	fi; \
 	updated=0; \
-	for workspace in pi-codex-usage pi-copilot-usage; do \
+	for workspace in pi-codex-usage pi-context-meter pi-copilot-usage; do \
 	  manifest="packages/$$workspace/package.json"; \
 	  changelog="packages/$$workspace/CHANGELOG.md"; \
 	  manifest_changed=0; changelog_changed=0; \
@@ -153,6 +155,7 @@ release-commit:
 	fi
 	git add package-lock.json \
 	  packages/pi-codex-usage/package.json packages/pi-codex-usage/CHANGELOG.md \
+	  packages/pi-context-meter/package.json packages/pi-context-meter/CHANGELOG.md \
 	  packages/pi-copilot-usage/package.json packages/pi-copilot-usage/CHANGELOG.md
 	git add -u -- .changeset
 	git diff --cached --check

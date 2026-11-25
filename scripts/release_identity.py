@@ -25,6 +25,11 @@ PACKAGE_IDENTITIES = {
         workspace="packages/pi-codex-usage",
         npm_name="@debonzi/pi-codex-usage",
     ),
+    "pi-context-meter": PackageIdentity(
+        selector="pi-context-meter",
+        workspace="packages/pi-context-meter",
+        npm_name="@debonzi/pi-context-meter",
+    ),
     "pi-copilot-usage": PackageIdentity(
         selector="pi-copilot-usage",
         workspace="packages/pi-copilot-usage",

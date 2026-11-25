@@ -1,6 +1,6 @@
 # Releasing the DB11 Pi packages
 
-This document defines the independent release contract for the two publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
+This document defines the independent release contract for the publishable workspaces. The repository root is a private coordinator and is never versioned, tagged as a package, or published.
 
 ## Release identities
 
@@ -9,6 +9,7 @@ Release code must use this fixed allowlist rather than deriving a path or npm id
 | `PACKAGE` selector | Workspace | npm package | Annotated tag |
 | --- | --- | --- | --- |
 | `pi-codex-usage` | `packages/pi-codex-usage` | `@debonzi/pi-codex-usage` | `pi-codex-usage-vX.Y.Z` |
+| `pi-context-meter` | `packages/pi-context-meter` | `@debonzi/pi-context-meter` | `pi-context-meter-vX.Y.Z` |
 | `pi-copilot-usage` | `packages/pi-copilot-usage` | `@debonzi/pi-copilot-usage` | `pi-copilot-usage-vX.Y.Z` |
 
 Retired selectors, including `db11-skills`, `dbz-skills`, and `dbz-crew`, are historical only and are rejected for new releases. Existing tags remain unchanged.
@@ -76,6 +77,7 @@ The release workflow must trigger only for these tag families:
 
 ```text
 pi-codex-usage-v*
+pi-context-meter-v*
 pi-copilot-usage-v*
 ```
 
@@ -88,6 +90,7 @@ The publish job alone needs `id-token: write`; repository contents remain read-o
 Each npm identity requires its own registry entry and trusted-publisher authorization:
 
 - `@debonzi/pi-codex-usage`
+- `@debonzi/pi-context-meter`
 - `@debonzi/pi-copilot-usage`
 
 For each package, the trusted publisher must authorize this GitHub Actions identity:

@@ -1,15 +1,16 @@
 # DB11 AI Tools package catalog
 
-This repository is the private workspace coordinator and source catalog for two independently installable [Pi](https://github.com/earendil-works/pi-mono) packages. The repository root is not a Pi package and is never published.
+This repository is the private workspace coordinator and source catalog for independently installable [Pi](https://github.com/earendil-works/pi-mono) packages. The repository root is not a Pi package and is never published.
 
 ## Packages
 
 | Package | Included resources | Intended use |
 | --- | --- | --- |
 | [`@debonzi/pi-codex-usage`](packages/pi-codex-usage/README.md) | Codex Usage Pi extension | OpenAI Codex quota display and on-demand usage reports |
+| [`@debonzi/pi-context-meter`](packages/pi-context-meter/README.md) | Pi Context Meter extension | On-demand reports of context-window usage and remaining capacity |
 | [`@debonzi/pi-copilot-usage`](packages/pi-copilot-usage/README.md) | GitHub Copilot Usage Pi extension | GitHub Copilot allowance display and on-demand usage reports |
 
-Package versions and releases are independent. There is no aggregate package that installs both.
+Package versions and releases are independent. There is no aggregate package that installs them together.
 
 ## Install from npm
 
@@ -19,6 +20,7 @@ Install only the packages you want:
 
 ```sh
 pi install npm:@debonzi/pi-codex-usage
+pi install npm:@debonzi/pi-context-meter
 pi install npm:@debonzi/pi-copilot-usage
 ```
 
@@ -34,7 +36,7 @@ If Pi is already running after an install or configuration change, run `/reload`
 | [`context-footer`](deprecated/context-footer.ts) | The local Pi extension has been removed from `agents/pi/extensions/`. |
 | [`db11-squad`](deprecated/db11-squad/ANOTATIONS.md) | The proposal is retired. Only architectural notes were present; there was no runnable extension to remove. |
 
-The archives are kept for reference. This change does not modify existing Pi installations, Wyrd records, or npm registry metadata. `db11-issues` and `db11-spec` had already been retired and are not distributed by either active package.
+The archives are kept for reference. This change does not modify existing Pi installations, Wyrd records, or npm registry metadata. `db11-issues` and `db11-spec` had already been retired and are not distributed by any active package.
 
 ### Remove a retired standalone skills package
 
@@ -56,6 +58,7 @@ From a clone of this repository, install an active workspace by its explicit loc
 
 ```sh
 pi install ./packages/pi-codex-usage
+pi install ./packages/pi-context-meter
 pi install ./packages/pi-copilot-usage
 ```
 

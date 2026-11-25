@@ -58,8 +58,29 @@ PY
         pi list --no-approve >"$case_root/pi-list.txt"
         grep -Fq "$package_root" "$case_root/pi-list.txt"
 
+        local -a probe_args=()
+        if [[ "$selector" == pi-context-meter ]]; then
+            # RPC lists commands, so expose a probe command only if Pi activated the tool.
+            local probe="$case_root/context-meter-probe.ts"
+            tee "$probe" >/dev/null <<'TS'
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", () => {
+    if (pi.getActiveTools().includes("pi-context-meter")) {
+      pi.registerCommand("context-meter-probe", {
+        description: "Confirm that Pi Context Meter is active.",
+        handler: async () => {},
+      });
+    }
+  });
+}
+TS
+            probe_args=(--extension "$probe")
+        fi
+
         printf '%s\n' '{"type":"get_commands"}' | \
-            pi --mode rpc --no-session --no-context-files --no-approve --offline \
+            pi --mode rpc --no-session --no-context-files --no-approve --offline "${probe_args[@]}" \
             >"$case_root/rpc.jsonl"
     )
 
@@ -132,6 +153,15 @@ if selector == "pi-codex-usage":
     }
     assert set(owned) == {"usage-codex"}, owned
     assert owned["usage-codex"]["source"] == "extension"
+elif selector == "pi-context-meter":
+    assert manifest["pi"] == {
+        "extensions": ["./agents/pi/extensions/pi-context-meter/index.ts"],
+    }
+    assert not owned, owned
+    assert any(
+        command["name"] == "context-meter-probe" and command["source"] == "extension"
+        for command in commands
+    ), commands
 elif selector == "pi-copilot-usage":
     assert manifest["pi"] == {
         "extensions": ["./agents/pi/extensions/copilot-usage/index.ts"],
@@ -164,13 +194,11 @@ requested="${1:-all}"
 case "$requested" in
     all)
         run_package_test pi-codex-usage @debonzi/pi-codex-usage
+        run_package_test pi-context-meter @debonzi/pi-context-meter
         run_package_test pi-copilot-usage @debonzi/pi-copilot-usage
         ;;
-    pi-codex-usage)
-        run_package_test pi-codex-usage @debonzi/pi-codex-usage
-        ;;
-    pi-copilot-usage)
-        run_package_test pi-copilot-usage @debonzi/pi-copilot-usage
+    pi-codex-usage|pi-context-meter|pi-copilot-usage)
+        run_package_test "$requested" "@debonzi/$requested"
         ;;
     *)
         printf 'Unknown package selector: %s\n' "$requested" >&2

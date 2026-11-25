@@ -18,6 +18,7 @@ SPEC.loader.exec_module(RELEASE_IDENTITY)
 
 EXPECTED = {
     "pi-codex-usage": ("packages/pi-codex-usage", "@debonzi/pi-codex-usage"),
+    "pi-context-meter": ("packages/pi-context-meter", "@debonzi/pi-context-meter"),
     "pi-copilot-usage": (
         "packages/pi-copilot-usage",
         "@debonzi/pi-copilot-usage",

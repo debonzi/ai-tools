@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "pi-codex-usage-v*"
+      - "pi-context-meter-v*"
       - "pi-copilot-usage-v*"
 
 permissions:

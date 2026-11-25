@@ -31,6 +31,20 @@ EXPECTED_WORKSPACES = {
             "agents/pi/extensions/codex-usage/index.ts",
         },
     },
+    "pi-context-meter": {
+        "name": "@debonzi/pi-context-meter",
+        "pi": {"extensions": ["./agents/pi/extensions/pi-context-meter/index.ts"]},
+        "peers": {
+            "@earendil-works/pi-coding-agent": "*",
+            "typebox": "*",
+        },
+        "files": {
+            "README.md",
+            "LICENSE",
+            "CHANGELOG.md",
+            "agents/pi/extensions/pi-context-meter/index.ts",
+        },
+    },
     "pi-copilot-usage": {
         "name": "@debonzi/pi-copilot-usage",
         "pi": {"extensions": ["./agents/pi/extensions/copilot-usage/index.ts"]},
